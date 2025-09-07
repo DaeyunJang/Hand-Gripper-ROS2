@@ -1,0 +1,29 @@
+gripper:
+  # 1) 단일 스칼라 스케일(가장 간단)
+  scale: 0.24   # [m per 1.0 normalized]
+  # 2) (옵션) 축별 스케일도 허용하고 싶으면 대신 아래 형태 사용
+  # scale_xyz: [0.12, 0.12, 0.12]
+
+  target_suffix: canon_norm
+  
+  fingers:
+    - name: finger1
+      base_offset_x: -0.12
+      base_offset_y: -0.010
+      target_base_frame: hand_left_index_mcp_canon_norm
+      target_eef_frame:  hand_left_index_tip_canon_norm
+    - name: finger2
+      base_offset_x: -0.12
+      base_offset_y: 0.010
+      target_base_frame: hand_left_thumb_mcp_canon_norm
+      target_eef_frame:  hand_left_thumb_tip_canon_norm
+    - name: finger3
+      base_offset_x: 0.02
+      base_offset_y: -0.010
+      target_base_frame: hand_right_index_mcp_canon_norm
+      target_eef_frame:  hand_right_index_tip_canon_norm
+    - name: finger4
+      base_offset_x: 0.02
+      base_offset_y: 0.010
+      target_base_frame: hand_right_thumb_mcp_canon_norm
+      target_eef_frame:  hand_right_thumb_tip_canon_norm

@@ -33,7 +33,8 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 "source_root": "camera_color_optical_frame",
-                "scale": 0.6
+                "scale": 0.12,
+                "warning_log_flag": False,
             }]
         ),
         # Node(

@@ -2,9 +2,10 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import annotations
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 from pathlib import Path
 import os
+import re
 
 import yaml
 import numpy as np
@@ -18,14 +19,39 @@ from geometry_msgs.msg import TransformStamped
 from scipy.spatial.transform import Rotation as R
 from ament_index_python.packages import get_package_share_directory
 
-from retarget_py.algebra_utils import make_homogeneous, make_inv_homogeneous
-from retarget_py.handpose_tf_listener import mat_to_tf
+# --- 작은 유틸 -------------------------------------------------------------
 
+def make_homogeneous(Rm: np.ndarray, t: np.ndarray) -> np.ndarray:
+    M = np.eye(4)
+    M[:3, :3] = Rm
+    M[:3, 3] = t
+    return M
 
-# ---------- 작은 유틸 ----------
+def make_inv_homogeneous(T: np.ndarray) -> np.ndarray:
+    Rm = T[:3, :3]
+    t = T[:3, 3]
+    Ti = np.eye(4)
+    Ti[:3, :3] = Rm.T
+    Ti[:3, 3] = -Rm.T @ t
+    return Ti
+
+def mat_to_tf(T: np.ndarray, parent: str, child: str, stamp) -> TransformStamped:
+    tf = TransformStamped()
+    tf.header.stamp = stamp
+    tf.header.frame_id = parent
+    tf.child_frame_id = child
+    tf.transform.translation.x = float(T[0, 3])
+    tf.transform.translation.y = float(T[1, 3])
+    tf.transform.translation.z = float(T[2, 3])
+    q = R.from_matrix(T[:3, :3]).as_quat()  # x,y,z,w
+    tf.transform.rotation.x = float(q[0])
+    tf.transform.rotation.y = float(q[1])
+    tf.transform.rotation.z = float(q[2])
+    tf.transform.rotation.w = float(q[3])
+    return tf
 
 def rot_y_180_mat() -> np.ndarray:
-    """source -> gripper (Ry 180°)"""
+    """source_root -> gripper_base_frame (Ry 180°)"""
     Ry = R.from_euler('y', 180.0, degrees=True).as_matrix()
     return make_homogeneous(Ry, np.zeros(3))
 
@@ -38,22 +64,26 @@ def add_suffix(frame_name: str, suffix: str = "gripper_scale") -> str:
     return frame_name if frame_name.endswith(tail) else (frame_name + tail)
 
 
-# ---------- 메인 노드 ----------
+# --- 메인 노드 -------------------------------------------------------------
 
 class RetargetNode(Node):
     """
-    순서
-    (A) source_root 기준 모든 hand 프레임을 먼저 스케일 적용하여 '<원래이름>_gripper_scale'로 퍼블리시 (parent=source_root)
-    (B) 손가락 i:
-        - finger{i}_base_frame: gripper에서 (offset_x, offset_y) 평행이동 (정적)
-        - finger{i}_mcp: finger_base에서 '스케일된 target_base_frame'을 본 변환의 x만 반영
-        - finger{i}_tip: finger{i}_mcp에 '스케일된 (target_base -> target_eef)' 변환을 그대로 곱함
+    (A) source_root 기준으로, 이름이 hand_* 이고 suffix가 target_suffix 인 모든 프레임을 찾아
+        병진(x,y,z)에 스케일(scale 또는 scale_xyz)을 곱한 좌표계를
+        '<원래이름>_{scale_suffix}'로 퍼블리시(parent=source_root).
+    (B) 정적 프레임:
+        - (정적) source_root --Ry180--> gripper_base_frame
+        - (정적) gripper_base_frame --(base_offset_x,y)--> gripper_finger{i}_base_frame
+    (C) 각 finger i에 대해:
+        - gripper_base_frame 기준 hand_{label}_{finger}_mcp_{target_suffix}_{scale_suffix} 좌표까지의
+          변환에서 병진 성분만 추출하여,
+          parent=gripper_base_frame, child=gripper_finger{i}_mcp_frame 으로 퍼블리시(회전은 gripper와 동일).
     """
 
     def __init__(self) -> None:
         super().__init__("retarget_node")
 
-        # --- Params ---
+        # --- Parameters ---
         self.source_root: str = self.declare_parameter(
             "source_root", "camera_color_optical_frame"
         ).get_parameter_value().string_value
@@ -62,22 +92,23 @@ class RetargetNode(Node):
             "gripper_base_frame", "gripper_base_frame"
         ).get_parameter_value().string_value
 
-        # scale: param 우선, 없으면 YAML
-        self.declare_parameter("scale", 0.0)
-        self.scale_scalar: float = 1.0
-        self.scale_xyz: Optional[np.ndarray] = None  # [sx,sy,sz] 지정 시 우선
+        self.target_suffix: str = self.declare_parameter(
+            "target_suffix", "canon_norm"
+        ).get_parameter_value().string_value
 
-        # suffix for scaled hand frames
         self.scale_suffix: str = self.declare_parameter(
             "scale_suffix", "gripper_scale"
         ).get_parameter_value().string_value
 
         self.rate_hz: float = float(self.declare_parameter("rate_hz", 100.0).value)
 
-        # YAML path
         self.config_path: str = self.declare_parameter(
             "gripper_config_path", ""
         ).get_parameter_value().string_value
+
+        # 스케일 파라미터(선언)
+        self.declare_parameter("scale", 0.0)
+        self.declare_parameter("scale_xyz", [])
 
         # --- TF IO ---
         self.tf_buffer = tf2_ros.Buffer()
@@ -87,30 +118,41 @@ class RetargetNode(Node):
 
         # --- Load Config ---
         cfg = self._load_gripper_config(self.config_path)
-        # fingers: [{name, base_offset_x, base_offset_y, target_base_frame, target_eef_frame}]
-        self.fingers: List[Dict[str, Any]] = cfg["fingers"]
-        # (선택) 모든 손 프레임 리스트 (없으면 fingers에 등장하는 것들만 스케일)
-        self.hand_frames_to_scale: List[str] = cfg.get("hand_frames", [])
 
-        # scale 우선순위
+        # 스케일: param > yaml(scale_xyz or scale) > default
+        # 요청: 이번 단계에서는 선호에 따라 scalar/xyz 둘 다 지원
         scale_param = float(self.get_parameter("scale").value or 0.0)
+        scale_xyz_param = self.get_parameter("scale_xyz").value or []
+        self.scale_xyz: Optional[np.ndarray] = None
+        self.scale_scalar: float = 1.0
         if scale_param > 0.0:
             self.scale_scalar = scale_param
-            self.scale_xyz = None
-            scale_src = "param"
-        else:
-            if cfg.get("scale_xyz") is not None:
-                self.scale_xyz = np.array(cfg["scale_xyz"], dtype=float)
+            src_scale = "param:scale"
+        elif scale_xyz_param:
+            v = np.array(scale_xyz_param, dtype=float).reshape(-1)
+            if v.size == 3:
+                self.scale_xyz = v
                 self.scale_scalar = 1.0
-                scale_src = "yaml(scale_xyz)"
+                src_scale = "param:scale_xyz"
             else:
-                self.scale_scalar = float(cfg.get("scale", 1.0))
-                self.scale_xyz = None
-                scale_src = "yaml(scale)"
+                self.get_logger().warning("param scale_xyz must have 3 elements. Fallback to YAML/default.")
+                self._pick_yaml_scale(cfg)
+                src_scale = "yaml"
+        else:
+            self._pick_yaml_scale(cfg)
+            src_scale = "yaml"
 
-        # --- Static frames: source->gripper, gripper->finger_base ---
+        # target_suffix는 param 우선, 없으면 yaml
+        if self.get_parameter("target_suffix").get_parameter_value().string_value:
+            self.target_suffix = self.get_parameter("target_suffix").value
+        else:
+            self.target_suffix = str(cfg.get("target_suffix") or self.target_suffix)
+
+        # fingers 설정 로드
+        self.fingers_cfg = cfg.get("fingers") or []  # [{name, base_offset_x, base_offset_y, target_finger:{label,finger}}]
+
+        # --- Static frames: (B) source->gripper, gripper->finger_base ---
         self._finger_base_names: List[str] = []
-        self._gripper_to_fingerBase: List[np.ndarray] = []
         self._publish_static_frames()
 
         # --- Timer ---
@@ -120,27 +162,36 @@ class RetargetNode(Node):
         scale_repr = list(self.scale_xyz) if self.scale_xyz is not None else self.scale_scalar
         self.get_logger().info(
             f"[retarget] source='{self.source_root}', gripper='{self.gripper_base_frame}', "
-            f"scale={scale_repr} ({scale_src}), fingers={len(self.fingers)}, rate={self.rate_hz:.1f}Hz"
+            f"target_suffix='{self.target_suffix}', scale={scale_repr} ({src_scale}), "
+            f"scale_suffix='{self.scale_suffix}', fingers={len(self.fingers_cfg)}, rate={self.rate_hz:.1f}Hz"
         )
 
         self._last_warn: Dict[str, float] = {}
         self._warn_interval: float = 2.0
 
-    # ---------- Config ----------
+    # --- config 로더 --------------------------------------------------------
+
+    def _pick_yaml_scale(self, cfg: Dict[str, Any]) -> None:
+        sxyz = cfg.get("scale_xyz")
+        if sxyz is not None and isinstance(sxyz, (list, tuple)) and len(sxyz) == 3:
+            self.scale_xyz = np.array(sxyz, dtype=float)
+            self.scale_scalar = 1.0
+        else:
+            self.scale_scalar = float(cfg.get("scale", 1.0))
+            self.scale_xyz = None
 
     def _load_gripper_config(self, user_path: str) -> Dict[str, Any]:
         """
         YAML 예:
         gripper:
-          scale: 0.06
-          # scale_xyz: [sx, sy, sz]
-          # (선택) hand_frames: [ hand_left_*_canon ... ]   # 여기 넣으면 이 목록 전체를 스케일해서 퍼블리시
+          scale: 0.24
+          # scale_xyz: [0.12,0.12,0.12]
+          target_suffix: canon_norm
           fingers:
             - name: finger1
-              base_offset_x: -0.06
+              base_offset_x: -0.12
               base_offset_y: -0.010
-              target_base_frame: hand_left_index_mcp_canon
-              target_eef_frame:  hand_left_index_tip_canon
+              target_finger: { label: left, finger: index }
             - ...
         """
         candidates: List[Path] = []
@@ -158,191 +209,97 @@ class RetargetNode(Node):
 
         cfg_path = next((c for c in candidates if c.is_file()), None)
         if not cfg_path:
-            self.get_logger().warning("No gripper_config.yaml found. Using default config.")
-            return {
-                "scale": 1.0,
-                "scale_xyz": None,
-                "hand_frames": [],
-                "fingers": [{
-                    "name": "finger1",
-                    "base_offset_x": 0.0, "base_offset_y": 0.0,
-                    "target_base_frame": "hand_left_index_mcp_canon",
-                    "target_eef_frame":  "hand_left_index_tip_canon",
-                }],
-            }
+            self.get_logger().warning("No gripper_config.yaml found. Using defaults.")
+            return {"scale": 1.0, "target_suffix": "canon_norm", "fingers": []}
 
         try:
             with open(cfg_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
             g = data.get("gripper") or {}
 
+            # sanitize fingers
             fingers: List[Dict[str, Any]] = []
             for i, fdef in enumerate(g.get("fingers") or [], start=1):
                 name = str(fdef.get("name") or f"finger{i}")
                 x = float(fdef.get("base_offset_x") or 0.0)
                 y = float(fdef.get("base_offset_y") or 0.0)
-
-                base = fdef.get("target_base_frame")
-                eef  = fdef.get("target_eef_frame")
-                if not base or not eef:
-                    self.get_logger().warning(f"[config] finger '{name}' requires target_base_frame & target_eef_frame. Skipping.")
+                tfing = fdef.get("target_finger") or {}
+                label = str(tfing.get("label") or "")
+                finger = str(tfing.get("finger") or "")
+                if not label or not finger:
+                    self.get_logger().warning(f"[config] {name}: target_finger.label/finger required. Skipping.")
                     continue
-
                 fingers.append({
                     "name": name,
                     "base_offset_x": x, "base_offset_y": y,
-                    "target_base_frame": str(base),
-                    "target_eef_frame":  str(eef),
+                    "target_finger": {"label": label, "finger": finger},
                 })
 
-            if not fingers:
-                fingers = [{
-                    "name": "finger1",
-                    "base_offset_x": 0.0, "base_offset_y": 0.0,
-                    "target_base_frame": "hand_left_index_mcp_canon",
-                    "target_eef_frame":  "hand_left_index_tip_canon",
-                }]
-
-            scale = float(g.get("scale") or 1.0)
-            sxyz = g.get("scale_xyz")
-            if sxyz is not None and (not isinstance(sxyz, (list, tuple)) or len(sxyz) != 3):
-                self.get_logger().warning("gripper.scale_xyz must be [sx, sy, sz]; ignoring.")
-                sxyz = None
-
-            hand_frames = g.get("hand_frames") or []
-            if hand_frames and not isinstance(hand_frames, list):
-                self.get_logger().warning("gripper.hand_frames must be a list of strings; ignoring.")
-                hand_frames = []
-
+            out = {
+                "scale": float(g.get("scale") or 1.0),
+                "scale_xyz": g.get("scale_xyz"),
+                "target_suffix": str(g.get("target_suffix") or "canon_norm"),
+                "fingers": fingers,
+            }
             self.get_logger().info(f"Loaded gripper config: {cfg_path} (fingers={len(fingers)})")
-            return {"scale": scale, "scale_xyz": sxyz, "fingers": fingers, "hand_frames": hand_frames}
-
+            return out
         except Exception as ex:
             self.get_logger().warning(f"Failed to load gripper config '{cfg_path}': {ex}. Using defaults.")
-            return {
-                "scale": 1.0,
-                "scale_xyz": None,
-                "hand_frames": [],
-                "fingers": [{
-                    "name": "finger1",
-                    "base_offset_x": 0.0, "base_offset_y": 0.0,
-                    "target_base_frame": "hand_left_index_mcp_canon",
-                    "target_eef_frame":  "hand_left_index_tip_canon",
-                }],
-            }
+            return {"scale": 1.0, "target_suffix": "canon_norm", "fingers": []}
 
-    # ---------- 정적 프레임 퍼블리시 ----------
+    # --- 프레임 이름 조합기 --------------------------------------------------
+
+    def _hand_frame_name(self, label: str, finger: str, joint: str) -> str:
+        """hand_{label}_{finger}_{joint}_{suffix}"""
+        return f"hand_{label}_{finger}_{joint}_{self.target_suffix}"
+
+    def _scaled_name(self, frame: str) -> str:
+        """'<원래이름>_{scale_suffix}'"""
+        return add_suffix(frame, self.scale_suffix)
+
+    # (이전 이슈를 피하기 위해) suffix 기반 가능한 모든 hand 프레임을 생성
+    def _list_all_hand_frames_by_suffix(self) -> List[str]:
+        labels  = ["left", "right"]
+        fingers = ["thumb", "index", "middle", "ring", "pinky"]
+        joints  = ["mcp", "pip", "dip", "tip"]
+        frames: List[str] = []
+        for lb in labels:
+            for fg in fingers:
+                for jt in joints:
+                    frames.append(self._hand_frame_name(lb, fg, jt))
+        return frames
+
+    # --- 정적 프레임 퍼블리시 (B) -------------------------------------------
 
     def _publish_static_frames(self) -> None:
-        """(정적) source -> gripper, gripper -> finger{i}_base"""
+        """(정적) source_root -> gripper_base_frame (Ry180), gripper -> finger_base(offset)"""
         static_tfs: List[TransformStamped] = []
         stamp = Time().to_msg()
 
-        # source -> gripper
-        source_to_gripper = rot_y_180_mat()
-        static_tfs.append(mat_to_tf(source_to_gripper,
-                                    parent=self.source_root,
-                                    child=self.gripper_base_frame,
-                                    stamp=stamp))
+        # source_root -> gripper_base_frame (Ry180)
+        H = rot_y_180_mat()
+        static_tfs.append(mat_to_tf(H, parent=self.source_root, child=self.gripper_base_frame, stamp=stamp))
 
-        # gripper -> finger_base
+        # gripper_base_frame -> gripper_finger{i}_base_frame (offset)
         self._finger_base_names.clear()
-        self._gripper_to_fingerBase.clear()
-        for fdef in self.fingers:
-            finger_base = f"{fdef['name']}_base_frame"
+        for fdef in self.fingers_cfg:
+            fname = str(fdef["name"])
+            fx, fy = float(fdef["base_offset_x"]), float(fdef["base_offset_y"])
+            finger_base = f"gripper_{fname}_base_frame"
             self._finger_base_names.append(finger_base)
+            Hfb = trans_xyz_mat(fx, fy, 0.0)
+            static_tfs.append(mat_to_tf(Hfb, parent=self.gripper_base_frame, child=finger_base, stamp=stamp))
 
-            gripper_to_finger = trans_xyz_mat(fdef["base_offset_x"], fdef["base_offset_y"], 0.0)
-            self._gripper_to_fingerBase.append(gripper_to_finger)
+        if static_tfs:
+            self.static_br.sendTransform(static_tfs)
 
-            static_tfs.append(mat_to_tf(gripper_to_finger,
-                                        parent=self.gripper_base_frame,
-                                        child=finger_base,
-                                        stamp=stamp))
-
-        self.static_br.sendTransform(static_tfs)
-
-    # ---------- 주기 콜백 ----------
-
-    def _on_timer(self) -> None:
-        """
-        A. 먼저 source 기준으로 hand 프레임들 스케일 적용해 '<name>_gripper_scale'로 퍼블리시 (parent=source)
-        B. 손가락별로 finger_mcp, finger_tip 생성
-        """
-        stamp = self.get_clock().now().to_msg()
-        source = self.source_root
-        gripper = self.gripper_base_frame
-
-        # source <-> gripper (정적)
-        source_to_gripper = rot_y_180_mat()
-        gripper_to_source = make_inv_homogeneous(source_to_gripper)
-
-        # ---- A) 스케일된 hand 프레임들 퍼블리시 ----
-        frames_to_scale: List[str] = list(self.hand_frames_to_scale)
-        if not frames_to_scale:
-            # 최소한 fingers에 등장하는 타깃 프레임들은 스케일해서 퍼블리시
-            s = set()
-            for f in self.fingers:
-                s.add(f["target_base_frame"])
-                s.add(f["target_eef_frame"])
-            frames_to_scale = sorted(s)
-            self.get_logger().warn(
-                "gripper.hand_frames가 비어있습니다. fingers에 등장한 프레임들만 스케일합니다."
-            )
-
-        # source -> (각 hand_frame)
-        source_to_scaled: Dict[str, np.ndarray] = {}
-        for hf in frames_to_scale:
-            H = self._lookup_mat_latest(source, hf)  # source -> hf
-            if H is None:
-                continue
-            H_scaled = self._scale_translation(H)    # 병진만 스케일
-            source_to_scaled[hf] = H_scaled
-            self.br.sendTransform(
-                mat_to_tf(H_scaled, parent=source, child=add_suffix(hf, self.scale_suffix), stamp=stamp)
-            )
-
-        # ---- B) 손가락별 mcp / tip 생성 ----
-        for finger_base, gripper_to_finger, fdef in zip(
-            self._finger_base_names, self._gripper_to_fingerBase, self.fingers
-        ):
-            base_name = fdef["target_base_frame"]
-            eef_name  = fdef["target_eef_frame"]
-
-            # 스케일된 source->base, source->eef 가 있어야 진행
-            Hb = source_to_scaled.get(base_name)
-            He = source_to_scaled.get(eef_name)
-            if Hb is None or He is None:
-                # 해당 프레임이 손 전체 리스트에 없으면 fingers 등장분만으로도 만들어지니 여기선 거의 안걸림
-                continue
-
-            # gripper 기준으로도 필요: gripper -> base_scaled, gripper -> eef_scaled
-            gripper_to_base_scaled = gripper_to_source @ Hb
-            gripper_to_eef_scaled  = gripper_to_source @ He
-
-            # (1) finger_base 기준으로 'base_scaled'를 본 변환: finger_base -> base_scaled
-            finger_to_base_scaled = make_inv_homogeneous(gripper_to_finger) @ gripper_to_base_scaled
-
-            # x 성분만 취해 finger{i}_mcp 생성 (parent = finger_base)
-            x_only = float(finger_to_base_scaled[0, 3])
-            finger_mcp_name = f"{finger_base.replace('_base_frame', '')}_mcp"
-            finger_to_mcp = trans_xyz_mat(x_only, 0.0, 0.0)
-            self.br.sendTransform(mat_to_tf(finger_to_mcp, parent=finger_base, child=finger_mcp_name, stamp=stamp))
-
-            # (2) 스케일된 (base -> eef) 변환: base_scaled^-1 @ eef_scaled
-            base_to_eef_scaled = make_inv_homogeneous(gripper_to_base_scaled) @ gripper_to_eef_scaled
-
-            # finger{i}_mcp 를 parent로 finger{i}_tip 생성 (mcp->tip = base->eef_scaled)
-            finger_tip_name = f"{finger_base.replace('_base_frame', '')}_tip"
-            self.br.sendTransform(mat_to_tf(base_to_eef_scaled, parent=finger_mcp_name, child=finger_tip_name, stamp=stamp))
-
-    # ---------- 헬퍼 ----------
+    # --- 헬퍼 ---------------------------------------------------------------
 
     def _lookup_mat_latest(self, target: str, source: str) -> Optional[np.ndarray]:
         """(target -> source) 최신 TF (timeout=0)"""
         try:
             T: TransformStamped = self.tf_buffer.lookup_transform(
-                target, source, Time(), Duration(seconds=0.0)
+                target_frame=target, source_frame=source, time=Time(), timeout=Duration(seconds=0.0)
             )
             t = T.transform.translation
             q = T.transform.rotation
@@ -372,8 +329,92 @@ class RetargetNode(Node):
             self.get_logger().warning(text)
             self._last_warn[text] = now
 
+    # --- 주기 콜백 ----------------------------------------------------------
 
-# ---------- 엔트리 ----------
+    def _on_timer(self) -> None:
+        """
+        (A) 스케일 퍼블리시: source_root -> hand_*_{target_suffix} 조회 → (x,y,z) 스케일 → *_<scale_suffix> 으로 퍼블리시
+        (C) 각 finger의 MCP 위치에, 회전은 gripper와 동일하고 병진만 반영한 gripper_finger{i}_mcp_frame 퍼블리시
+        """
+        stamp = self.get_clock().now().to_msg()
+        source = self.source_root
+        gripper = self.gripper_base_frame
+
+        # source <-> gripper (행렬)
+        source_to_gripper = rot_y_180_mat()
+        gripper_to_source = make_inv_homogeneous(source_to_gripper)
+
+        # ---- (A) suffix 기반 hand 프레임들 스케일 퍼블리시 ----
+        source_to_scaled: Dict[str, np.ndarray] = {}
+        for hf in self._list_all_hand_frames_by_suffix():
+            H = self._lookup_mat_latest(source, hf)  # source -> hand_frame
+            if H is None:
+                continue
+            Hs = self._scale_translation(H)         # 병진만 스케일
+            source_to_scaled[hf] = Hs
+            self.br.sendTransform(mat_to_tf(Hs, parent=source, child=self._scaled_name(hf), stamp=stamp))
+        
+        # self.get_logger().info(f'source_to_scaled: {source_to_scaled}')
+        
+        # ---- (C) finger별 gripper_finger{i}_mcp_frame 퍼블리시 ----
+        # 규칙: YAML의 target_finger = {label, finger}에서 MCP 프레임 이름 생성 후,
+        #       그 스케일된 프레임(source->..._gripper_scale)을 찾아 gripper 기준 병진만 추출
+        for fdef in self.fingers_cfg:
+            name = str(fdef["name"])
+            label = fdef["target_finger"]["label"]
+            finger = fdef["target_finger"]["finger"]
+
+            # 1) 원본 MCP 이름과 스케일된 프레임 이름
+            mcp_name = self._hand_frame_name(label, finger, "mcp")  # hand_{label}_{finger}_mcp_{target_suffix}
+            mcp_scaled_name = self._scaled_name(mcp_name)            # ..._{target_suffix}_{scale_suffix}
+
+            # 2) source_root -> mcp_scaled 행렬 확보
+            H_src_to_mcp_scaled = source_to_scaled.get(mcp_name)
+            if H_src_to_mcp_scaled is None:
+                # 스케일 퍼블리시가 아직 없거나 lookup 실패
+                H_src_to_mcp_scaled = self._lookup_mat_latest(source, mcp_scaled_name)
+                if H_src_to_mcp_scaled is None:
+                    self._warn_throttled(f"skip MCP for {name}: no TF '{mcp_name}' or '{mcp_scaled_name}'")
+                    continue
+
+            # 3) gripper 기준으로 변환: gripper -> mcp_scaled
+            H_grip_to_mcp_scaled = gripper_to_source @ H_src_to_mcp_scaled
+
+            # 4) 병진만 추출(회전은 gripper와 동일) → pure translation
+            tx, ty, tz = H_grip_to_mcp_scaled[0, 3], H_grip_to_mcp_scaled[1, 3], H_grip_to_mcp_scaled[2, 3]
+            H_grip_to_mcp_pure = trans_xyz_mat(float(tx), float(ty), float(tz))
+
+            # 5) 퍼블리시: parent=gripper_base_frame, child=gripper_finger{i}_mcp_frame
+            child_name = f"gripper_{name}_mcp_frame"
+            self.br.sendTransform(mat_to_tf(H_grip_to_mcp_pure, parent=gripper, child=child_name, stamp=stamp))
+            
+            
+            # ---------- NEW: MCP(parent) -> TIP(child) 퍼블리시 ----------
+            # tip 프레임 이름 구성: hand_{label}_{finger}_tip_{target_suffix} 및 그 스케일 버전
+            tip_name = self._hand_frame_name(label, finger, "tip")
+            tip_scaled_name = self._scaled_name(tip_name)
+
+            # source_root -> tip_scaled 행렬 확보(가능하면 캐시 사용)
+            H_src_to_tip_scaled = source_to_scaled.get(tip_name)
+            if H_src_to_tip_scaled is None:
+                H_src_to_tip_scaled = self._lookup_mat_latest(source, tip_scaled_name)
+                if H_src_to_tip_scaled is None:
+                    self._warn_throttled(f"skip TIP for {name}: no TF '{tip_name}' or '{tip_scaled_name}'")
+                    continue
+
+            # gripper -> tip_scaled
+            H_grip_to_tip_scaled = gripper_to_source @ H_src_to_tip_scaled
+
+            # mcp(parent) -> tip(child) = (gripper->mcp_pure)^(-1) @ (gripper->tip_scaled)
+            H_mcp_to_tip = make_inv_homogeneous(H_grip_to_mcp_pure) @ H_grip_to_tip_scaled
+
+            # 퍼블리시: parent=gripper_{name}_mcp_frame, child=gripper_{name}_tip_frame
+            tip_child = f"gripper_{name}_tip_frame"
+            self.br.sendTransform(mat_to_tf(H_mcp_to_tip, parent=child_name, child=tip_child, stamp=stamp))
+            # ---------- /NEW ----------
+
+
+# --- 엔트리 -----------------------------------------------------------------
 
 def main() -> None:
     rclpy.init()
@@ -383,3 +424,7 @@ def main() -> None:
     finally:
         node.destroy_node()
         rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()

@@ -64,133 +64,197 @@ Visualization Manager:
           Value: false
         camera_link:
           Value: false
-        finger1_base_frame:
-          Value: true
-        finger1_base_frame/mcp_in_gripper:
-          Value: false
-        finger1_base_frame/tip_in_gripper:
-          Value: false
-        finger1_base_frame_mcp_target:
-          Value: true
-        finger1_base_frame_tip_in_mcp_target:
-          Value: true
-        finger2_base_frame:
-          Value: true
-        finger2_base_frame/mcp_in_gripper:
-          Value: false
-        finger2_base_frame/tip_in_gripper:
-          Value: true
-        finger2_base_frame_mcp_target:
-          Value: true
-        finger2_base_frame_tip_in_mcp_target:
-          Value: true
-        finger3_base_frame:
-          Value: true
-        finger3_base_frame/mcp_in_gripper:
-          Value: false
-        finger3_base_frame/tip_in_gripper:
-          Value: false
-        finger3_base_frame_mcp_target:
-          Value: true
-        finger3_base_frame_tip_in_mcp_target:
-          Value: true
-        finger4_base_frame:
-          Value: true
-        finger4_base_frame/mcp_in_gripper:
-          Value: false
-        finger4_base_frame/tip_in_gripper:
-          Value: false
-        finger4_base_frame_mcp_target:
-          Value: true
-        finger4_base_frame_tip_in_mcp_target:
-          Value: true
         gripper_base_frame:
           Value: true
-        hand_left_index_dip_canon:
+        gripper_finger1_base_frame:
+          Value: true
+        gripper_finger1_mcp_frame:
+          Value: true
+        gripper_finger1_tip_frame:
+          Value: true
+        gripper_finger2_base_frame:
+          Value: true
+        gripper_finger2_mcp_frame:
+          Value: true
+        gripper_finger2_tip_frame:
+          Value: true
+        gripper_finger3_base_frame:
+          Value: true
+        gripper_finger3_mcp_frame:
+          Value: true
+        gripper_finger3_tip_frame:
+          Value: true
+        gripper_finger4_base_frame:
+          Value: true
+        gripper_finger4_mcp_frame:
+          Value: true
+        gripper_finger4_tip_frame:
+          Value: true
+        hand_left_index_dip_canon_norm:
           Value: false
-        hand_left_index_mcp_canon:
+        hand_left_index_dip_canon_norm_gripper_scale:
           Value: false
-        hand_left_index_pip_canon:
+        hand_left_index_mcp_canon_norm:
           Value: false
-        hand_left_index_tip_canon:
+        hand_left_index_mcp_canon_norm_gripper_scale:
           Value: false
-        hand_left_middle_dip_canon:
+        hand_left_index_pip_canon_norm:
           Value: false
-        hand_left_middle_mcp_canon:
+        hand_left_index_pip_canon_norm_gripper_scale:
           Value: false
-        hand_left_middle_pip_canon:
+        hand_left_index_tip_canon_norm:
           Value: false
-        hand_left_middle_tip_canon:
+        hand_left_index_tip_canon_norm_gripper_scale:
           Value: false
-        hand_left_pinky_dip_canon:
+        hand_left_middle_dip_canon_norm:
           Value: false
-        hand_left_pinky_mcp_canon:
+        hand_left_middle_dip_canon_norm_gripper_scale:
           Value: false
-        hand_left_pinky_pip_canon:
+        hand_left_middle_mcp_canon_norm:
           Value: false
-        hand_left_pinky_tip_canon:
+        hand_left_middle_mcp_canon_norm_gripper_scale:
           Value: false
-        hand_left_ring_dip_canon:
+        hand_left_middle_pip_canon_norm:
           Value: false
-        hand_left_ring_mcp_canon:
+        hand_left_middle_pip_canon_norm_gripper_scale:
           Value: false
-        hand_left_ring_pip_canon:
+        hand_left_middle_tip_canon_norm:
           Value: false
-        hand_left_ring_tip_canon:
+        hand_left_middle_tip_canon_norm_gripper_scale:
           Value: false
-        hand_left_thumb_dip_canon:
+        hand_left_pinky_dip_canon_norm:
           Value: false
-        hand_left_thumb_mcp_canon:
+        hand_left_pinky_dip_canon_norm_gripper_scale:
           Value: false
-        hand_left_thumb_pip_canon:
+        hand_left_pinky_mcp_canon_norm:
           Value: false
-        hand_left_thumb_tip_canon:
+        hand_left_pinky_mcp_canon_norm_gripper_scale:
           Value: false
-        hand_left_wrist_canon:
+        hand_left_pinky_pip_canon_norm:
           Value: false
-        hand_right_index_dip_canon:
+        hand_left_pinky_pip_canon_norm_gripper_scale:
           Value: false
-        hand_right_index_mcp_canon:
+        hand_left_pinky_tip_canon_norm:
           Value: false
-        hand_right_index_pip_canon:
+        hand_left_pinky_tip_canon_norm_gripper_scale:
           Value: false
-        hand_right_index_tip_canon:
+        hand_left_ring_dip_canon_norm:
           Value: false
-        hand_right_middle_dip_canon:
+        hand_left_ring_dip_canon_norm_gripper_scale:
           Value: false
-        hand_right_middle_mcp_canon:
+        hand_left_ring_mcp_canon_norm:
           Value: false
-        hand_right_middle_pip_canon:
+        hand_left_ring_mcp_canon_norm_gripper_scale:
           Value: false
-        hand_right_middle_tip_canon:
+        hand_left_ring_pip_canon_norm:
           Value: false
-        hand_right_pinky_dip_canon:
+        hand_left_ring_pip_canon_norm_gripper_scale:
           Value: false
-        hand_right_pinky_mcp_canon:
+        hand_left_ring_tip_canon_norm:
           Value: false
-        hand_right_pinky_pip_canon:
+        hand_left_ring_tip_canon_norm_gripper_scale:
           Value: false
-        hand_right_pinky_tip_canon:
+        hand_left_thumb_dip_canon_norm:
           Value: false
-        hand_right_ring_dip_canon:
+        hand_left_thumb_dip_canon_norm_gripper_scale:
           Value: false
-        hand_right_ring_mcp_canon:
+        hand_left_thumb_mcp_canon_norm:
           Value: false
-        hand_right_ring_pip_canon:
+        hand_left_thumb_mcp_canon_norm_gripper_scale:
           Value: false
-        hand_right_ring_tip_canon:
+        hand_left_thumb_pip_canon_norm:
           Value: false
-        hand_right_thumb_dip_canon:
+        hand_left_thumb_pip_canon_norm_gripper_scale:
           Value: false
-        hand_right_thumb_mcp_canon:
+        hand_left_thumb_tip_canon_norm:
           Value: false
-        hand_right_thumb_pip_canon:
+        hand_left_thumb_tip_canon_norm_gripper_scale:
           Value: false
-        hand_right_thumb_tip_canon:
+        hand_left_wrist_canon_norm:
           Value: false
-        hand_right_wrist_canon:
+        hand_right_index_dip_canon_norm:
           Value: false
-      Marker Scale: 0.05000000074505806
+        hand_right_index_dip_canon_norm_gripper_scale:
+          Value: false
+        hand_right_index_mcp_canon_norm:
+          Value: false
+        hand_right_index_mcp_canon_norm_gripper_scale:
+          Value: false
+        hand_right_index_pip_canon_norm:
+          Value: false
+        hand_right_index_pip_canon_norm_gripper_scale:
+          Value: false
+        hand_right_index_tip_canon_norm:
+          Value: false
+        hand_right_index_tip_canon_norm_gripper_scale:
+          Value: false
+        hand_right_middle_dip_canon_norm:
+          Value: false
+        hand_right_middle_dip_canon_norm_gripper_scale:
+          Value: false
+        hand_right_middle_mcp_canon_norm:
+          Value: false
+        hand_right_middle_mcp_canon_norm_gripper_scale:
+          Value: false
+        hand_right_middle_pip_canon_norm:
+          Value: false
+        hand_right_middle_pip_canon_norm_gripper_scale:
+          Value: false
+        hand_right_middle_tip_canon_norm:
+          Value: false
+        hand_right_middle_tip_canon_norm_gripper_scale:
+          Value: false
+        hand_right_pinky_dip_canon_norm:
+          Value: false
+        hand_right_pinky_dip_canon_norm_gripper_scale:
+          Value: false
+        hand_right_pinky_mcp_canon_norm:
+          Value: false
+        hand_right_pinky_mcp_canon_norm_gripper_scale:
+          Value: false
+        hand_right_pinky_pip_canon_norm:
+          Value: false
+        hand_right_pinky_pip_canon_norm_gripper_scale:
+          Value: false
+        hand_right_pinky_tip_canon_norm:
+          Value: false
+        hand_right_pinky_tip_canon_norm_gripper_scale:
+          Value: false
+        hand_right_ring_dip_canon_norm:
+          Value: false
+        hand_right_ring_dip_canon_norm_gripper_scale:
+          Value: false
+        hand_right_ring_mcp_canon_norm:
+          Value: false
+        hand_right_ring_mcp_canon_norm_gripper_scale:
+          Value: false
+        hand_right_ring_pip_canon_norm:
+          Value: false
+        hand_right_ring_pip_canon_norm_gripper_scale:
+          Value: false
+        hand_right_ring_tip_canon_norm:
+          Value: false
+        hand_right_ring_tip_canon_norm_gripper_scale:
+          Value: false
+        hand_right_thumb_dip_canon_norm:
+          Value: false
+        hand_right_thumb_dip_canon_norm_gripper_scale:
+          Value: false
+        hand_right_thumb_mcp_canon_norm:
+          Value: false
+        hand_right_thumb_mcp_canon_norm_gripper_scale:
+          Value: false
+        hand_right_thumb_pip_canon_norm:
+          Value: false
+        hand_right_thumb_pip_canon_norm_gripper_scale:
+          Value: false
+        hand_right_thumb_tip_canon_norm:
+          Value: false
+        hand_right_thumb_tip_canon_norm_gripper_scale:
+          Value: false
+        hand_right_wrist_canon_norm:
+          Value: false
+      Marker Scale: 0.029999999329447746
       Name: TF
       Show Arrows: false
       Show Axes: true
@@ -200,119 +264,187 @@ Visualization Manager:
           camera_color_frame:
             camera_color_optical_frame:
               gripper_base_frame:
-                finger1_base_frame:
-                  finger1_base_frame_mcp_target:
-                    finger1_base_frame_tip_in_mcp_target:
-                      {}
-                finger1_base_frame/mcp_in_gripper:
+                gripper_finger1_base_frame:
                   {}
-                finger1_base_frame/tip_in_gripper:
+                gripper_finger1_mcp_frame:
+                  gripper_finger1_tip_frame:
+                    {}
+                gripper_finger2_base_frame:
                   {}
-                finger2_base_frame:
-                  finger2_base_frame_mcp_target:
-                    finger2_base_frame_tip_in_mcp_target:
-                      {}
-                finger2_base_frame/mcp_in_gripper:
+                gripper_finger2_mcp_frame:
+                  gripper_finger2_tip_frame:
+                    {}
+                gripper_finger3_base_frame:
                   {}
-                finger2_base_frame/tip_in_gripper:
+                gripper_finger3_mcp_frame:
+                  gripper_finger3_tip_frame:
+                    {}
+                gripper_finger4_base_frame:
                   {}
-                finger3_base_frame:
-                  finger3_base_frame_mcp_target:
-                    finger3_base_frame_tip_in_mcp_target:
-                      {}
-                finger3_base_frame/mcp_in_gripper:
+                gripper_finger4_mcp_frame:
+                  gripper_finger4_tip_frame:
+                    {}
+              hand_left_index_dip_canon_norm_gripper_scale:
+                {}
+              hand_left_index_mcp_canon_norm_gripper_scale:
+                {}
+              hand_left_index_pip_canon_norm_gripper_scale:
+                {}
+              hand_left_index_tip_canon_norm_gripper_scale:
+                {}
+              hand_left_middle_dip_canon_norm_gripper_scale:
+                {}
+              hand_left_middle_mcp_canon_norm_gripper_scale:
+                {}
+              hand_left_middle_pip_canon_norm_gripper_scale:
+                {}
+              hand_left_middle_tip_canon_norm_gripper_scale:
+                {}
+              hand_left_pinky_dip_canon_norm_gripper_scale:
+                {}
+              hand_left_pinky_mcp_canon_norm_gripper_scale:
+                {}
+              hand_left_pinky_pip_canon_norm_gripper_scale:
+                {}
+              hand_left_pinky_tip_canon_norm_gripper_scale:
+                {}
+              hand_left_ring_dip_canon_norm_gripper_scale:
+                {}
+              hand_left_ring_mcp_canon_norm_gripper_scale:
+                {}
+              hand_left_ring_pip_canon_norm_gripper_scale:
+                {}
+              hand_left_ring_tip_canon_norm_gripper_scale:
+                {}
+              hand_left_thumb_dip_canon_norm_gripper_scale:
+                {}
+              hand_left_thumb_mcp_canon_norm_gripper_scale:
+                {}
+              hand_left_thumb_pip_canon_norm_gripper_scale:
+                {}
+              hand_left_thumb_tip_canon_norm_gripper_scale:
+                {}
+              hand_left_wrist_canon_norm:
+                hand_left_index_dip_canon_norm:
                   {}
-                finger3_base_frame/tip_in_gripper:
+                hand_left_index_mcp_canon_norm:
                   {}
-                finger4_base_frame:
-                  finger4_base_frame_mcp_target:
-                    finger4_base_frame_tip_in_mcp_target:
-                      {}
-                finger4_base_frame/mcp_in_gripper:
+                hand_left_index_pip_canon_norm:
                   {}
-                finger4_base_frame/tip_in_gripper:
+                hand_left_index_tip_canon_norm:
                   {}
-              hand_left_wrist_canon:
-                hand_left_index_dip_canon:
+                hand_left_middle_dip_canon_norm:
                   {}
-                hand_left_index_mcp_canon:
+                hand_left_middle_mcp_canon_norm:
                   {}
-                hand_left_index_pip_canon:
+                hand_left_middle_pip_canon_norm:
                   {}
-                hand_left_index_tip_canon:
+                hand_left_middle_tip_canon_norm:
                   {}
-                hand_left_middle_dip_canon:
+                hand_left_pinky_dip_canon_norm:
                   {}
-                hand_left_middle_mcp_canon:
+                hand_left_pinky_mcp_canon_norm:
                   {}
-                hand_left_middle_pip_canon:
+                hand_left_pinky_pip_canon_norm:
                   {}
-                hand_left_middle_tip_canon:
+                hand_left_pinky_tip_canon_norm:
                   {}
-                hand_left_pinky_dip_canon:
+                hand_left_ring_dip_canon_norm:
                   {}
-                hand_left_pinky_mcp_canon:
+                hand_left_ring_mcp_canon_norm:
                   {}
-                hand_left_pinky_pip_canon:
+                hand_left_ring_pip_canon_norm:
                   {}
-                hand_left_pinky_tip_canon:
+                hand_left_ring_tip_canon_norm:
                   {}
-                hand_left_ring_dip_canon:
+                hand_left_thumb_dip_canon_norm:
                   {}
-                hand_left_ring_mcp_canon:
+                hand_left_thumb_mcp_canon_norm:
                   {}
-                hand_left_ring_pip_canon:
+                hand_left_thumb_pip_canon_norm:
                   {}
-                hand_left_ring_tip_canon:
+                hand_left_thumb_tip_canon_norm:
                   {}
-                hand_left_thumb_dip_canon:
+              hand_right_index_dip_canon_norm_gripper_scale:
+                {}
+              hand_right_index_mcp_canon_norm_gripper_scale:
+                {}
+              hand_right_index_pip_canon_norm_gripper_scale:
+                {}
+              hand_right_index_tip_canon_norm_gripper_scale:
+                {}
+              hand_right_middle_dip_canon_norm_gripper_scale:
+                {}
+              hand_right_middle_mcp_canon_norm_gripper_scale:
+                {}
+              hand_right_middle_pip_canon_norm_gripper_scale:
+                {}
+              hand_right_middle_tip_canon_norm_gripper_scale:
+                {}
+              hand_right_pinky_dip_canon_norm_gripper_scale:
+                {}
+              hand_right_pinky_mcp_canon_norm_gripper_scale:
+                {}
+              hand_right_pinky_pip_canon_norm_gripper_scale:
+                {}
+              hand_right_pinky_tip_canon_norm_gripper_scale:
+                {}
+              hand_right_ring_dip_canon_norm_gripper_scale:
+                {}
+              hand_right_ring_mcp_canon_norm_gripper_scale:
+                {}
+              hand_right_ring_pip_canon_norm_gripper_scale:
+                {}
+              hand_right_ring_tip_canon_norm_gripper_scale:
+                {}
+              hand_right_thumb_dip_canon_norm_gripper_scale:
+                {}
+              hand_right_thumb_mcp_canon_norm_gripper_scale:
+                {}
+              hand_right_thumb_pip_canon_norm_gripper_scale:
+                {}
+              hand_right_thumb_tip_canon_norm_gripper_scale:
+                {}
+              hand_right_wrist_canon_norm:
+                hand_right_index_dip_canon_norm:
                   {}
-                hand_left_thumb_mcp_canon:
+                hand_right_index_mcp_canon_norm:
                   {}
-                hand_left_thumb_pip_canon:
+                hand_right_index_pip_canon_norm:
                   {}
-                hand_left_thumb_tip_canon:
+                hand_right_index_tip_canon_norm:
                   {}
-              hand_right_wrist_canon:
-                hand_right_index_dip_canon:
+                hand_right_middle_dip_canon_norm:
                   {}
-                hand_right_index_mcp_canon:
+                hand_right_middle_mcp_canon_norm:
                   {}
-                hand_right_index_pip_canon:
+                hand_right_middle_pip_canon_norm:
                   {}
-                hand_right_index_tip_canon:
+                hand_right_middle_tip_canon_norm:
                   {}
-                hand_right_middle_dip_canon:
+                hand_right_pinky_dip_canon_norm:
                   {}
-                hand_right_middle_mcp_canon:
+                hand_right_pinky_mcp_canon_norm:
                   {}
-                hand_right_middle_pip_canon:
+                hand_right_pinky_pip_canon_norm:
                   {}
-                hand_right_middle_tip_canon:
+                hand_right_pinky_tip_canon_norm:
                   {}
-                hand_right_pinky_dip_canon:
+                hand_right_ring_dip_canon_norm:
                   {}
-                hand_right_pinky_mcp_canon:
+                hand_right_ring_mcp_canon_norm:
                   {}
-                hand_right_pinky_pip_canon:
+                hand_right_ring_pip_canon_norm:
                   {}
-                hand_right_pinky_tip_canon:
+                hand_right_ring_tip_canon_norm:
                   {}
-                hand_right_ring_dip_canon:
+                hand_right_thumb_dip_canon_norm:
                   {}
-                hand_right_ring_mcp_canon:
+                hand_right_thumb_mcp_canon_norm:
                   {}
-                hand_right_ring_pip_canon:
+                hand_right_thumb_pip_canon_norm:
                   {}
-                hand_right_ring_tip_canon:
-                  {}
-                hand_right_thumb_dip_canon:
-                  {}
-                hand_right_thumb_mcp_canon:
-                  {}
-                hand_right_thumb_pip_canon:
-                  {}
-                hand_right_thumb_tip_canon:
+                hand_right_thumb_tip_canon_norm:
                   {}
           camera_depth_frame:
             camera_depth_optical_frame:
@@ -365,7 +497,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 0.2882086932659149
+      Distance: 0.21937979757785797
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1

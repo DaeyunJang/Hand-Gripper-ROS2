@@ -28,7 +28,7 @@ setup(
     entry_points={
         'console_scripts': [
             'retarget_node = retarget_py.retarget_node:main',
-            
+            'retarget_normalize_node = retarget_py.retarget_normalize_node:main',
         ],
     },
 )
