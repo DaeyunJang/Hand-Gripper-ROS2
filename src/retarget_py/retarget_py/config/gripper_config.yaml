@@ -1,5 +1,5 @@
 gripper:
-  scale: 0.24
+  scale: 0.48
   # scale_xyz: [0.12, 0.12, 0.12]
   target_suffix: canon_norm
   fingers:
