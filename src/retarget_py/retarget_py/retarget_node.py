@@ -306,10 +306,10 @@ class RetargetNode(Node):
             Rm = R.from_quat([q.x, q.y, q.z, q.w]).as_matrix()
             return make_homogeneous(Rm, np.array([t.x, t.y, t.z], dtype=float))
         except TransformException as ex:
-            self._warn_throttled(f"lookup failed: {target} <- {source} ({ex})")
+            # self._warn_throttled(f"lookup failed: {target} <- {source} ({ex})")
             return None
         except Exception as ex:
-            self._warn_throttled(f"lookup failed: {target} <- {source} ({ex})")
+            # self._warn_throttled(f"lookup failed: {target} <- {source} ({ex})")
             return None
 
     def _scale_translation(self, T: np.ndarray) -> np.ndarray:
