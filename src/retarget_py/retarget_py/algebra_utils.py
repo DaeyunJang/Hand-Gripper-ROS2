@@ -6,10 +6,18 @@ algebra_utils.py
 
 import math
 import numpy as np
+from scipy.spatial.transform import Rotation as R
+from typing import Tuple # compatible python < 3.9
 
 # ---------------------- 유틸 ----------------------
 def normalize(v: np.ndarray, eps: float = 1e-12) -> np.ndarray:
-    """벡터 정규화"""
+    """Normlaize vector
+    @note
+    normalize & norm are different!!!!
+
+    Returns:
+        np.ndarray: return nomalized vector
+    """
     n = np.linalg.norm(v)
     return v if n < eps else (v / n)
 
@@ -34,15 +42,33 @@ def make_homogeneous(rotm: np.ndarray, trans: np.ndarray) -> np.ndarray:
 
 def make_inv_homogeneous(T: np.ndarray) -> np.ndarray:
     """4x4 동차행렬 역행렬"""
-    Rm = T[:3, :3]
-    t = T[:3, 3]
+    rotm = T[:3, :3]
+    trans = T[:3, 3]
     Ti = np.eye(4)
-    Ti[:3,:3] = Rm.T
-    Ti[:3,3] = -Rm.T @ t
+    Ti[:3,:3] = rotm.T
+    Ti[:3,3] = -rotm.T @ trans
     return Ti
 
 # ---------------------- 회전/쿼터니언 ----------------------
-def rotm_to_quat(R: np.ndarray):
+def rotm_to_quat(R: np.ndarray, eps=1e-12) -> Tuple[float, float, float, float]:
+        # 안전한 회전행렬 → 쿼터니언
+        # epsilon: prevent zero division
+        
+        # check size
+        R = np.asarray(R, dtype=float)
+        if R.shape == (4, 4):
+            R = R[:3, :3]
+        elif R.shape != (3, 3):
+            raise ValueError("R must be 3x3 or 4x4 matrix")
+        
+        qw = np.sqrt(max(0, 1 + R[0,0] + R[1,1] + R[2,2])) / 2
+        qx = (R[2,1] - R[1,2]) / (4*qw + eps)
+        qy = (R[0,2] - R[2,0]) / (4*qw + eps)
+        qz = (R[1,0] - R[0,1]) / (4*qw + eps)
+        return (qx,qy,qz,qw)
+
+
+def rotm_to_quat_v2(R: np.ndarray, eps=1e-12) -> Tuple[float, float, float, float]:
     """
     회전행렬(3x3 또는 4x4 상위 3x3) -> 쿼터니언 (qx, qy, qz, qw)
     - trace>0 공식 + 대각원소 최대 분기 방식으로 수치 안정성 강화
@@ -84,7 +110,7 @@ def rotm_to_quat(R: np.ndarray):
 
     q = np.array([qx, qy, qz, qw], dtype=float)
     n = np.linalg.norm(q)
-    if n < 1e-12:
+    if n < eps:   # prevent zero division
         return (0.0, 0.0, 0.0, 1.0)
     q /= n
     return (float(q[0]), float(q[1]), float(q[2]), float(q[3]))
