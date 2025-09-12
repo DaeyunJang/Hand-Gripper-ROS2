@@ -16,6 +16,7 @@ setup(
         # configuration files
         ('share/' + package_name + '/config', ['config/rviz_config.rviz']),
         (os.path.join('share', package_name, 'config'), glob.glob(os.path.join(f'{package_name}', 'config', 'gripper_config.yaml'))),
+        (os.path.join('share', package_name, 'urdf'), glob.glob(os.path.join('urdf', 'three_dof_manipulator.urdf.xacro'))),
         # (os.path.join('share', package_name, 'config'), [f'/gripper_config.yaml']),
     ],
     install_requires=['setuptools'],
@@ -28,7 +29,7 @@ setup(
     entry_points={
         'console_scripts': [
             'retarget_node = retarget_py.retarget_node:main',
-            'retarget_normalize_node = retarget_py.retarget_normalize_node:main',
+            'ik_solver_node = retarget_py.ik_solver:main'
         ],
     },
 )

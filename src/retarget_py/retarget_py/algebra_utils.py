@@ -7,7 +7,7 @@ algebra_utils.py
 import math
 import numpy as np
 from scipy.spatial.transform import Rotation as R
-from typing import Tuple # compatible python < 3.9
+from typing import Dict, Any, List, Optional, Tuple # compatible python < 3.9
 
 # ---------------------- 유틸 ----------------------
 def normalize(v: np.ndarray, eps: float = 1e-12) -> np.ndarray:
@@ -126,3 +126,13 @@ def quat_to_rotm(qx: float, qy: float, qz: float, qw: float) -> np.ndarray:
         [2*(xy + wz),         1 - 2*(xx + zz),     2*(yz - wx)],
         [2*(xz - wy),         2*(yz + wx),         1 - 2*(xx + yy)],
     ], dtype=float)
+
+def scale_translation(T: np.ndarray, scale: float | Tuple[float, float, float]) -> np.ndarray:
+    """병진만 스케일. 회전은 그대로."""
+    M = T.copy()
+    M[:3, 3] = M[:3, 3] * scale
+    return M
+
+def rot_y_180_mat() -> np.ndarray:
+    Ry = R.from_euler('y', 180.0, degrees=True).as_matrix()
+    return make_homogeneous(Ry, np.zeros(3))

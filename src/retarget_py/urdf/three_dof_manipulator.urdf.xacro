@@ -1,0 +1,71 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="three_dof_arm">
+
+  <!-- 런치/CLI에서 넘길 길이 인자 -->
+  <xacro:arg name="L1" default="0.18"/>
+  <xacro:arg name="L2" default="0.16"/>
+
+  <!-- 파이썬 표현식(${ ... })에서 쓸 변수로 바인딩 -->
+  <xacro:property name="L1_val" value="$(arg L1)"/>
+  <xacro:property name="L2_val" value="$(arg L2)"/>
+
+  <!-- base link -->
+  <link name="arm_base">
+    <visual>
+      <geometry><box size="0.05 0.05 0.02"/></geometry>
+      <material name="grey"><color rgba="0.6 0.6 0.6 1.0"/></material>
+    </visual>
+  </link>
+
+  <!-- joint1: Rz -->
+  <joint name="joint1" type="revolute">
+    <parent link="arm_base"/>
+    <child  link="link1"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14159" upper="3.14159" velocity="6.0" effort="10.0"/>
+  </joint>
+
+  <link name="link1">
+    <visual>
+      <!-- 계산식은 ${ ... } 사용 -->
+      <origin xyz="${0.5 * float(L1_val)} 0 0" rpy="0 0 0"/>
+      <geometry><box size="${L1_val} 0.02 0.02"/></geometry>
+      <material name="blue"><color rgba="0.2 0.4 0.9 1.0"/></material>
+    </visual>
+  </link>
+
+  <!-- joint2: Ry -->
+  <joint name="joint2" type="revolute">
+    <parent link="link1"/>
+    <child  link="link2"/>
+    <origin xyz="${L1_val} 0 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-3.14159" upper="3.14159" velocity="6.0" effort="10.0"/>
+  </joint>
+
+  <link name="link2">
+    <visual>
+      <origin xyz="${0.5 * float(L2_val)} 0 0" rpy="0 0 0"/>
+      <geometry><box size="${L2_val} 0.02 0.02"/></geometry>
+      <material name="green"><color rgba="0.1 0.8 0.3 1.0"/></material>
+    </visual>
+  </link>
+
+  <!-- joint3: Ry -->
+  <joint name="joint3" type="revolute">
+    <parent link="link2"/>
+    <child  link="tip_link"/>
+    <origin xyz="${L2_val} 0 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-3.14159" upper="3.14159" velocity="6.0" effort="10.0"/>
+  </joint>
+
+  <link name="tip_link">
+    <visual>
+      <origin xyz="0.03 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.06 0.015 0.015"/></geometry>
+      <material name="red"><color rgba="0.9 0.2 0.2 1.0"/></material>
+    </visual>
+  </link>
+</robot>
