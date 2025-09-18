@@ -4,8 +4,8 @@
   <!-- ===== Base link ===== -->
   <link name="gripper_base_frame">
     <visual>
-      <geometry><box size="0.3 0.1 0.01"/></geometry>
-      <material name="gray"><color rgba="0.5 0.5 0.5 0.3"/></material>
+      <geometry><box size="0.2 0.15 0.01"/></geometry>
+      <material name="gray"><color rgba="0.9 0.9 0.9 0.3"/></material>
     </visual>
   </link>
 
@@ -22,12 +22,12 @@
   </xacro:macro>
 
   <!-- 3-DoF finger with box links (j1: z-rot, j2: y-rot, j3: y-rot) -->
-  <xacro:macro name="finger_3dof_box" params="name base_link l1 l2 l3 thickness:=0.002">
+  <xacro:macro name="finger_3dof_box" params="name base_link l1 l2 l3 thickness:=0.002 thickness2:=0.004">
 
     <link name="${name}_mcp">
       <visual>
         <geometry><sphere radius="0.002"/></geometry>
-        <material name="black"><color rgba="0.8 0.8 0.8 0.5"/></material>
+        <material name="black"><color rgba="0.8 0.8 0.8 0.4"/></material>
       </visual>
     </link>
 
@@ -41,7 +41,7 @@
     <link name="${name}_link2">
       <visual>
         <origin xyz="${l2/2} 0 0" rpy="0 0 0"/>
-        <geometry><box size="${l2} ${thickness} ${thickness}"/></geometry>
+        <geometry><box size="${l2} ${thickness2} ${thickness2}"/></geometry>
         <material name="green"><color rgba="0.2 0.8 0.2 1"/></material>
       </visual>
     </link>
@@ -54,7 +54,7 @@
     </link>
     <link name="${name}_tip">
       <visual>
-        <geometry><sphere radius="0.006"/></geometry>
+        <geometry><sphere radius="0.003"/></geometry>
         <material name="red"><color rgba="0.9 0.2 0.2 1"/></material>
       </visual>
     </link>

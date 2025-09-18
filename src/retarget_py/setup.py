@@ -15,6 +15,7 @@ setup(
         (os.path.join('share', package_name, 'launch'), glob.glob(os.path.join('launch', '*launch.[pxy][yma]*'))),
         # configuration files
         ('share/' + package_name + '/config', ['config/rviz_config.rviz']),
+        ('share/' + package_name + '/config', ['config/rviz_config_sideview.rviz']),
         (os.path.join('share', package_name, 'config'), glob.glob(os.path.join(f'{package_name}', 'config', 'gripper_config.yaml'))),
         (os.path.join('share', package_name, 'urdf'), glob.glob(os.path.join('urdf', 'three_dof_manipulator.urdf.xacro'))),
         # (os.path.join('share', package_name, 'config'), [f'/gripper_config.yaml']),

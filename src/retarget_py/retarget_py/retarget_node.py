@@ -694,7 +694,7 @@ class RetargetNode(Node):
     def publish_target_joint_and_trajectory_step_all_fingers(self, finger_solutions: list[tuple[list[str], list[float]]], duration_s: float = 0.1) -> None:
         jt = JointTrajectory()
         jt.joint_names = list(self.all_joint_names)
-        self.get_logger().info(f'jt.joint_names: \n{jt.joint_names}')
+        # self.get_logger().info(f'jt.joint_names: \n{jt.joint_names}')
 
         # p0: 현재값
         p0 = JointTrajectoryPoint()
@@ -723,7 +723,7 @@ class RetargetNode(Node):
         # p1: 목표(q_goal들을 전체 순서에 맞게 병합)
         for names, qs in finger_solutions:
             for n, q in zip(names, qs):
-                self.get_logger().info(f'n={n}, q={q}')
+                # self.get_logger().info(f'n={n}, q={q}')
                 goal_map[n] = float(q)
 
 
@@ -794,7 +794,7 @@ class RetargetNode(Node):
 
         if solutions:
             self.publish_target_joint_and_trajectory_step_all_fingers(solutions, duration_s=0.01)  # 주기에 맞춰 0.05~0.3s 조절
-            self.get_logger().info(f'solutions: {solutions}')
+            # self.get_logger().info(f'solutions: {solutions}')
             # self.get_logger().info(f'time: t0-t1: {t1-t0} / t1-t2: {t2-t1} / t2-t3: {t3-t2}')
             
         t3 = time.perf_counter()

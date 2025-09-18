@@ -45,6 +45,11 @@ def generate_launch_description():
         'config',
         'rviz_config.rviz'
     ])
+    rviz_config_sideview_path = PathJoinSubstitution([
+        FindPackageShare('retarget_py'),
+        'config',
+        'rviz_config_sideview.rviz'
+    ])
 
     retarget_node = Node(
         package='retarget_py',
@@ -98,6 +103,13 @@ def generate_launch_description():
         output='screen',
         arguments=['-d', rviz_config_path],
     )
+    rviz_sideview_node = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='handpose_rviz_sideview',
+        output='screen',
+        arguments=['-d', rviz_config_sideview_path],
+    )
 
     return LaunchDescription([
         # 기본값: handpose 함께 실행 + 1280x720@30
@@ -110,6 +122,7 @@ def generate_launch_description():
         retarget_node,
         # ik_solver_node,
         rviz_node,
+        rviz_sideview_node,
         joint_state_preview_node,
         robot_state_publisher,
     ])
