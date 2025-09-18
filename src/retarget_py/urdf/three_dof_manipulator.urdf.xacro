@@ -1,71 +1,124 @@
 <?xml version="1.0"?>
-<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="three_dof_arm">
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="hand_gripper">
 
-  <!-- 런치/CLI에서 넘길 길이 인자 -->
-  <xacro:arg name="L1" default="0.18"/>
-  <xacro:arg name="L2" default="0.16"/>
-
-  <!-- 파이썬 표현식(${ ... })에서 쓸 변수로 바인딩 -->
-  <xacro:property name="L1_val" value="$(arg L1)"/>
-  <xacro:property name="L2_val" value="$(arg L2)"/>
-
-  <!-- base link -->
-  <link name="arm_base">
+  <!-- ===== Base link ===== -->
+  <link name="gripper_base_frame">
     <visual>
-      <geometry><box size="0.05 0.05 0.02"/></geometry>
-      <material name="grey"><color rgba="0.6 0.6 0.6 1.0"/></material>
+      <geometry><box size="0.3 0.1 0.01"/></geometry>
+      <material name="gray"><color rgba="0.5 0.5 0.5 0.3"/></material>
     </visual>
   </link>
 
-  <!-- joint1: Rz -->
-  <joint name="joint1" type="revolute">
-    <parent link="arm_base"/>
-    <child  link="link1"/>
-    <origin xyz="0 0 0" rpy="0 0 0"/>
-    <axis xyz="0 0 1"/>
-    <limit lower="-3.14159" upper="3.14159" velocity="6.0" effort="10.0"/>
-  </joint>
+  <!-- finger base (fixed offset from gripper_base_frame) -->
+  <xacro:macro name="finger_base" params="name base_x base_y">
+    <!-- <link name="gripper_${name}_base"/> -->
+    <joint name="${name}_base_fixed" type="fixed">
+      <parent link="gripper_base_frame"/>
+      <!-- <child  link="gripper_${name}_base"/> -->
+      <child  link="${name}_base"/>
+      <origin xyz="${base_x} ${base_y} 0.0" rpy="0 0 0"/>
+    </joint>
+    <link name="${name}_base"/>
+  </xacro:macro>
 
-  <link name="link1">
-    <visual>
-      <!-- 계산식은 ${ ... } 사용 -->
-      <origin xyz="${0.5 * float(L1_val)} 0 0" rpy="0 0 0"/>
-      <geometry><box size="${L1_val} 0.02 0.02"/></geometry>
-      <material name="blue"><color rgba="0.2 0.4 0.9 1.0"/></material>
-    </visual>
-  </link>
+  <!-- 3-DoF finger with box links (j1: z-rot, j2: y-rot, j3: y-rot) -->
+  <xacro:macro name="finger_3dof_box" params="name base_link l1 l2 l3 thickness:=0.002">
 
-  <!-- joint2: Ry -->
-  <joint name="joint2" type="revolute">
-    <parent link="link1"/>
-    <child  link="link2"/>
-    <origin xyz="${L1_val} 0 0" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit lower="-3.14159" upper="3.14159" velocity="6.0" effort="10.0"/>
-  </joint>
+    <link name="${name}_mcp">
+      <visual>
+        <geometry><sphere radius="0.002"/></geometry>
+        <material name="black"><color rgba="0.8 0.8 0.8 0.5"/></material>
+      </visual>
+    </link>
 
-  <link name="link2">
-    <visual>
-      <origin xyz="${0.5 * float(L2_val)} 0 0" rpy="0 0 0"/>
-      <geometry><box size="${L2_val} 0.02 0.02"/></geometry>
-      <material name="green"><color rgba="0.1 0.8 0.3 1.0"/></material>
-    </visual>
-  </link>
+    <link name="${name}_link1">
+      <visual>
+        <origin xyz="${l1/2} 0 0" rpy="0 0 0"/>
+        <geometry><box size="${l1} ${thickness} ${thickness}"/></geometry>
+        <material name="blue"><color rgba="0.2 0.4 0.9 1"/></material>
+      </visual>
+    </link>
+    <link name="${name}_link2">
+      <visual>
+        <origin xyz="${l2/2} 0 0" rpy="0 0 0"/>
+        <geometry><box size="${l2} ${thickness} ${thickness}"/></geometry>
+        <material name="green"><color rgba="0.2 0.8 0.2 1"/></material>
+      </visual>
+    </link>
+    <link name="${name}_link3">
+      <visual>
+        <origin xyz="${l3/2} 0 0" rpy="0 0 0"/>
+        <geometry><box size="${l3} ${thickness} ${thickness}"/></geometry>
+        <material name="orange"><color rgba="1.0 0.6 0.2 1"/></material>
+      </visual>
+    </link>
+    <link name="${name}_tip">
+      <visual>
+        <geometry><sphere radius="0.006"/></geometry>
+        <material name="red"><color rgba="0.9 0.2 0.2 1"/></material>
+      </visual>
+    </link>
 
-  <!-- joint3: Ry -->
-  <joint name="joint3" type="revolute">
-    <parent link="link2"/>
-    <child  link="tip_link"/>
-    <origin xyz="${L2_val} 0 0" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit lower="-3.14159" upper="3.14159" velocity="6.0" effort="10.0"/>
-  </joint>
 
-  <link name="tip_link">
-    <visual>
-      <origin xyz="0.03 0 0" rpy="0 0 0"/>
-      <geometry><box size="0.06 0.015 0.015"/></geometry>
-      <material name="red"><color rgba="0.9 0.2 0.2 1.0"/></material>
-    </visual>
-  </link>
+    <!-- 0) base_link -> mcp (prismatic) -->
+    <joint name="${name}_j0_linear" type="prismatic">
+      <!-- <parent link="${base_link}"/> -->
+      <parent link="${name}_base"/>
+      <child  link="${name}_mcp"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0.0" upper="0.10" effort="10.0" velocity="0.2"/>
+    </joint>
+    <!-- j1 -->
+    <joint name="${name}_j1" type="revolute">
+      <parent link="${name}_mcp"/>
+      <child  link="${name}_link1"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="${-3.1415926535}" upper="${3.1415926535}" effort="2.0" velocity="5.0"/>
+    </joint>
+
+    <!-- j2 -->
+    <joint name="${name}_j2" type="revolute">
+      <parent link="${name}_link1"/>
+      <child  link="${name}_link2"/>
+      <!-- <origin xyz="${l1} 0 0" rpy="0 -1.5708 0"/> -->
+      <origin xyz="${l1} 0 0" rpy="1.5708 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="${-1.57079632679}" upper="${1.57079632679}" effort="2.0" velocity="5.0"/>
+    </joint>
+
+    <!-- j3 -->
+    <joint name="${name}_j3" type="revolute">
+      <parent link="${name}_link2"/>
+      <child  link="${name}_link3"/>
+      <origin xyz="${l2} 0 0" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="${-1.57079632679}" upper="${1.57079632679}" effort="2.0" velocity="5.0"/>
+    </joint>
+
+    <joint name="${name}_tip_fixed" type="fixed">
+      <parent link="${name}_link3"/>
+      <child  link="${name}_tip"/>
+      <origin xyz="${l3} 0 0" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- === Instances (gripper_config.yaml 값 반영) === -->
+  <!-- finger1 -->
+  <xacro:finger_base name="finger1" base_x="-0.07" base_y="-0.030"/>
+  <xacro:finger_3dof_box name="finger1" base_link="gripper_finger1_base" l1="0.0" l2="0.045" l3="0.045"/>
+
+  <!-- finger2 -->
+  <xacro:finger_base name="finger2" base_x="-0.07" base_y="0.030"/>
+  <xacro:finger_3dof_box name="finger2" base_link="gripper_finger2_base" l1="0.0" l2="0.045" l3="0.045"/>
+
+  <!-- finger3 -->
+  <xacro:finger_base name="finger3" base_x="0.02" base_y="-0.030"/>
+  <xacro:finger_3dof_box name="finger3" base_link="gripper_finger3_base" l1="0.0" l2="0.045" l3="0.045"/>
+
+  <!-- finger4 -->
+  <xacro:finger_base name="finger4" base_x="0.02" base_y="0.030"/>
+  <xacro:finger_3dof_box name="finger4" base_link="gripper_finger4_base" l1="0.0" l2="0.045" l3="0.045"/>
+
 </robot>

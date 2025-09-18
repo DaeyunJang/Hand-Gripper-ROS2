@@ -1,156 +1,240 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from __future__ import annotations
+# ik_solver.py
+# standalone module
+# 3-DoF DH manipulator (roll, pan, pan) — position-only IK (mask) + animation
+# Requires: roboticstoolbox-python, spatialmath-python, matplotlib, numpy
+
+import time
+from dataclasses import dataclass
+from typing import Optional, Tuple
+
 import numpy as np
-from typing import List
+import matplotlib.pyplot as plt
+from matplotlib import animation
+import roboticstoolbox as rtb
+from spatialmath import SE3
+from spatialmath import base as sm
+from math import pi
 
-import rclpy
-from rclpy.node import Node
-from rclpy.duration import Duration
-from rclpy.time import Time
 
-import tf2_ros
-from tf2_ros import TransformException
-from geometry_msgs.msg import TransformStamped
-from sensor_msgs.msg import JointState
+@dataclass
+class IKResult:
+    success: bool
+    reason: str
+    q_final: np.ndarray
+    iterations: Optional[int]
+    residual: Optional[float]
+    elapsed_ms: float
+    pos_err: np.ndarray
+    pos_err_norm: float
+    ang_err_rad: Optional[float]
+    T_final: SE3
 
-from retarget_py.three_dof_manipulator import ThreeDoFManipulator
 
-def quat_to_rotm(x: float, y: float, z: float, w: float) -> np.ndarray:
-    """Quaternion(x,y,z,w) → 3x3 rotation matrix"""
-    # normalized 가정(ROS의 TF는 정규화되어 옴)
-    xx, yy, zz = x*x, y*y, z*z
-    xy, xz, yz = x*y, x*z, y*z
-    wx, wy, wz = w*x, w*y, w*z
-    return np.array([
-        [1 - 2*(yy + zz), 2*(xy - wz),     2*(xz + wy)],
-        [2*(xy + wz),     1 - 2*(xx + zz), 2*(yz - wx)],
-        [2*(xz - wy),     2*(yz + wx),     1 - 2*(xx + yy)],
-    ], dtype=float)
-
-def tf_to_matrix(tfmsg: TransformStamped) -> np.ndarray:
-    t = tfmsg.transform.translation
-    q = tfmsg.transform.rotation
-    Rm = quat_to_rotm(q.x, q.y, q.z, q.w)
-    T = np.eye(4, dtype=float)
-    T[:3, :3] = Rm
-    T[:3,  3] = [t.x, t.y, t.z]
-    return T
-
-class ThreeDoFIkNode(Node):
+class ThreeDoFManipulator:
     """
-    TF: (base_frame <- eef_frame) 조회 → ^base T_tip 4x4 변환행렬 → 3DoF IK → JointState 퍼블리시
+    3-DoF DH manipulator (roll, pan, pan).
+    Link layout (default):
+      - L1: d = l1 (z offset), a = 0,    alpha = +pi/2
+      - L2: d = 0,  a = l2 (x link),     alpha = 0
+      - L3: d = 0,  a = l3 (x link),     alpha = 0
+    L2, L3 limits default to [-pi/2, +pi/2].
     """
-    def __init__(self) -> None:
-        super().__init__("three_dof_ik_node")
 
-        # ---- Parameters ----
-        self.declare_parameter("base_frame", "gripper_finger1_mcp")
-        self.declare_parameter("eef_frame",  "gripper_finger1_tip")
-        self.declare_parameter("rate_hz", 100.0)
+    def __init__(
+        self,
+        l1: float = 0.00,
+        l2: float = 0.020,
+        l3: float = 0.020,
+        qlim1: Tuple[float, float] = (-pi, pi),
+        qlim2: Tuple[float, float] = (-pi/2, pi/2),
+        qlim3: Tuple[float, float] = (-pi/2, pi/2),
+        name: str = "3DOF_Manipulator",
+    ):
+        self.l1, self.l2, self.l3 = l1, l2, l3
+        L1 = rtb.DHLink(d=l1, a=0.0,   alpha=pi/2, offset=0, qlim=list(qlim1))
+        L2 = rtb.DHLink(d=0.0, a=l2,   alpha=0.0,  offset=0, qlim=list(qlim2))
+        L3 = rtb.DHLink(d=0.0, a=l3,   alpha=0.0,  offset=0, qlim=list(qlim3))
+        self.robot = rtb.DHRobot([L1, L2, L3], name=name)
 
-        self.declare_parameter("link1", 0.1)
-        self.declare_parameter("link2", 0.1)
-        self.declare_parameter("base_z_offset", 0.0)
-        self.declare_parameter("tool_offset_local", [0.0, 0.0, 0.0])
-        self.declare_parameter("elbow", "up")     # "up" / "down"
-        self.declare_parameter("angle_unit", "rad")  # 내부 계산/리턴 단위 (JointState는 rad가 일반적)
+    # ---------- Kinematics ----------
+    def fkine(self, q: np.ndarray) -> SE3:
+        return self.robot.fkine(q)
 
-        self.declare_parameter("joint_names", ["joint1", "joint2", "joint3"])
-        self.declare_parameter("output_topic", "ik_joint_states")
+    def joint_positions(self, q: np.ndarray) -> np.ndarray:
+        """Return joint/world positions [base, j1, j2, ee] as (4,3)."""
+        T = SE3()
+        pts = [T.t]  # base origin
+        for link, qi in zip(self.robot.links, q):
+            T = T * link.A(qi)
+            pts.append(T.t)
+        return np.vstack(pts)
 
-        self.base_frame: str = self.get_parameter("base_frame").get_parameter_value().string_value
-        self.eef_frame:  str = self.get_parameter("eef_frame").get_parameter_value().string_value
-        self.rate_hz: float = float(self.get_parameter("rate_hz").value)
+    # ---------- IK solve ----------
+    def solve(
+        self,
+        T_target: np.ndarray | SE3,
+        q0: Optional[np.ndarray] = None,
+        position_only: bool = True,
+        ilimit: int = 1000,
+        tol: float = 1e-6,
+    ) -> IKResult:
+        """
+        DLS(LM) 기반 역기구학.
+        - position_only=True 이면 mask=[1,1,1, 0,0,0] 로 위치만 추적.
+        - False면 풀 포즈 추적(mask=[1,1,1, 1,1,1]).
+        """
+        if isinstance(T_target, np.ndarray):
+            if T_target.shape != (4, 4):
+                raise ValueError("T_target must be 4x4 homogeneous matrix or spatialmath.SE3.")
+            T_goal = SE3(T_target)
+        elif isinstance(T_target, SE3):
+            T_goal = T_target
+        else:
+            raise TypeError("T_target must be np.ndarray (4x4) or SE3.")
 
-        link1 = float(self.get_parameter("link1").value)
-        link2 = float(self.get_parameter("link2").value)
-        base_z_offset = float(self.get_parameter("base_z_offset").value)
+        mask = np.r_[1, 1, 1, 0, 0, 0] if position_only else np.r_[1, 1, 1, 1, 1, 1]
+        if q0 is None:
+            q0 = np.zeros(3)
 
-        tool_offset_local_param = self.get_parameter("tool_offset_local").value
-        tool_offset_local = np.array(tool_offset_local_param, dtype=float).reshape(3)
+        t0 = time.perf_counter()
+        sol = self.robot.ikine_LM(T_goal, q0=q0, mask=mask, ilimit=ilimit, tol=tol)
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
-        elbow = str(self.get_parameter("elbow").value).lower()
-        angle_unit = str(self.get_parameter("angle_unit").value).lower()
+        T_final = self.fkine(sol.q)
+        p_goal, p_final = T_goal.t, T_final.t
+        pos_err = p_goal - p_final
+        pos_err_norm = float(np.linalg.norm(pos_err))
 
-        self.joint_names: List[str] = list(self.get_parameter("joint_names").value)
-        self.pub_topic: str = self.get_parameter("output_topic").get_parameter_value().string_value
+        ang_err_rad = None
+        if not position_only:
+            R_err = T_goal.R @ T_final.R.T
+            ang_err_rad, _ = sm.tr2angvec(R_err)
 
-        # ---- IK Solver ----
-        self.ik = ThreeDoFManipulator(
-            link1=link1,
-            link2=link2,
-            base_z_offset=base_z_offset,
-            tool_offset_local=tool_offset_local,
-            angle_unit="rad" if angle_unit not in ("rad", "deg") else angle_unit,  # 안전
-            elbow="up" if elbow != "down" else "down",
+        return IKResult(
+            success=bool(sol.success),
+            reason=getattr(sol, "reason", ""),
+            q_final=np.asarray(sol.q).copy(),
+            iterations=getattr(sol, "iterations", None),
+            residual=getattr(sol, "residual", None),
+            elapsed_ms=float(elapsed_ms),
+            pos_err=pos_err,
+            pos_err_norm=pos_err_norm,
+            ang_err_rad=ang_err_rad,
+            T_final=T_final,
         )
 
-        # ---- TF ----
-        self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+    # ---------- Animation ----------
+    def animate(
+        self,
+        q_start: np.ndarray,
+        q_end: np.ndarray,
+        target_pos: Optional[np.ndarray] = None,
+        frames: int = 180,
+        interval: int = 20,
+        show: bool = True,
+    ):
+        """
+        q_start -> q_end 조인트공간 선형 보간을 애니메이션으로 표시.
+        """
+        q_traj = np.linspace(q_start, q_end, frames)
+        ee_path = np.zeros((frames, 3))
+        for i, q in enumerate(q_traj):
+            ee_path[i] = self.fkine(q).t
 
-        # ---- Publisher ----
-        self.pub_js = self.create_publisher(JointState, self.pub_topic, 10)
+        reach_xy = self.l2 + self.l3 + 0.05
+        zmax = self.l1 + 0.05
+        zmin = -0.05
 
-        # ---- Timer ----
-        period = 1.0 / max(1.0, self.rate_hz)
-        self.timer = self.create_timer(period, self._on_timer)
+        fig = plt.figure(figsize=(7, 7))
+        ax = fig.add_subplot(111, projection="3d")
+        ax.set_xlim([-reach_xy, reach_xy])
+        ax.set_ylim([-reach_xy, reach_xy])
+        ax.set_zlim([zmin, zmax])
+        ax.set_xlabel("X [m]")
+        ax.set_ylabel("Y [m]")
+        ax.set_zlabel("Z [m]")
+        ax.set_title("3-DoF DH Manipulator — Motion")
 
-        self.get_logger().info(
-            f"[IK] base='{self.base_frame}', tip='{self.eef_frame}', rate={self.rate_hz:.1f}Hz, "
-            f"links=({link1},{link2}), tool={tool_offset_local.tolist()}, elbow={self.ik.elbow}, unit={self.ik.angle_unit}"
-        )
+        if target_pos is not None:
+            ax.scatter([target_pos[0]], [target_pos[1]], [target_pos[2]], s=40)
 
-        # 간단한 경고 스로틀용
-        self._last_warn_sec = 0.0
-        self._warn_period_sec = 1.0  # 1초에 한 번만 경고
+        link_line, = ax.plot([], [], [], linewidth=3)
+        path_line, = ax.plot([], [], [], linewidth=1)
 
-    def _warn_throttled(self, msg: str) -> None:
-        from time import monotonic
-        now = monotonic()
-        if now - self._last_warn_sec >= self._warn_period_sec:
-            self.get_logger().warning(msg)
-            self._last_warn_sec = now
+        def init():
+            link_line.set_data([], [])
+            link_line.set_3d_properties([])
+            path_line.set_data([], [])
+            path_line.set_3d_properties([])
+            return link_line, path_line
 
-    def _on_timer(self) -> None:
-        # ^base T_tip 얻기 위해 target=base, source=tip 로 조회
-        try:
-            tfmsg = self.tf_buffer.lookup_transform(
-                target_frame=self.base_frame,
-                source_frame=self.eef_frame,
-                time=Time(),
-                timeout=Duration(seconds=0.0)
-            )
-        except TransformException as e:
-            # self._warn_throttled(f"TF lookup failed: {self.base_frame} -> {self.eef_frame} ({e})")
-            return
+        def update(i):
+            q = q_traj[i]
+            pts = self.joint_positions(q)  # (4,3): base→j1→j2→ee
+            link_line.set_data(pts[:, 0], pts[:, 1])
+            link_line.set_3d_properties(pts[:, 2])
 
-        T = tf_to_matrix(tfmsg)
+            trail = ee_path[:i + 1]
+            path_line.set_data(trail[:, 0], trail[:, 1])
+            path_line.set_3d_properties(trail[:, 2])
+            return link_line, path_line
 
-        # IK (필요시 도달불가 케이스는 내부 clamp로 근사)
-        theta1, theta2, theta3 = self.ik.ik(T)
-        # JointState는 rad가 일반적. self.ik.angle_unit이 'deg'라면 rad로 변환.
-        if self.ik.angle_unit == "deg":
-            theta1, theta2, theta3 = np.radians([theta1, theta2, theta3])
+        ani = animation.FuncAnimation(fig, update, frames=frames, init_func=init,
+                                      blit=True, interval=interval)
+        if show:
+            plt.show()
+        return ani
 
-        js = JointState()
-        js.header.stamp = self.get_clock().now().to_msg()
-        js.name = self.joint_names
-        js.position = [float(theta1), float(theta2), float(theta3)]
-        # self.get_logger().info(f'joint target: {js.position}')
-        # self.get_logger().info(f'joint target: {np.asarray(js.position)*180/np.pi}')
-        self.pub_js.publish(js)
 
-def main() -> None:
-    rclpy.init()
-    node = ThreeDoFIkNode()
-    try:
-        rclpy.spin(node)
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+# 편의용 팩토리 (요청하신 이름을 대신하는 역할)
+def get_manipulator(**kwargs) -> ThreeDoFManipulator:
+    """
+    Example:
+        from ik_solver import get_manipulator
+        manip = get_manipulator(l1=0.20, l2=0.20, l3=0.15)
+    """
+    return ThreeDoFManipulator(**kwargs)
 
+
+# 샘플 실행
 if __name__ == "__main__":
-    main()
+    # 기존 예시와 동일한 목표/초기값
+    l1, l2, l3 = 0.20, 0.20, 0.15
+    manip = ThreeDoFManipulator(l1, l2, l3)
+
+    T_target = np.array([
+        [1.0, 0.0, 0.0, 0.22],
+        [0.0, 1.0, 0.0, 0.20],
+        [0.0, 0.0, 1.0, 0.10],
+        [0.0, 0.0, 0.0, 1.0]
+    ])
+    q0 = np.deg2rad([90.0, 90.0, -90.0])
+
+    # 위치만 추적
+    # (mask=[1,1,1,0,0,0])
+    res = manip.solve(T_target, q0=q0, position_only=True, ilimit=1000, tol=1e-6)
+    actual_T = res.T_final
+    # 상세 리포트
+    print("=== IK (LM/DLS) — Detailed Report ===")
+    print(f"Success           : {res.success}  | Reason: {res.reason}")
+    print(f"Iterations        : {res.iterations}  | Residual: {res.residual}")
+    print(f"Elapsed time      : {res.elapsed_ms:.3f} ms")
+    print("----- Joints -----")
+    print(f"q0     [deg]      : {np.rad2deg(q0)}")
+    print(f"q_final[deg]      : {np.rad2deg(res.q_final)}")
+    print("----- Pose -----")
+    print(f"Target T          : \n{T_target}")
+    print(f"Final T   [m]     : \n{res.T_final}")
+    print(f"pos err  [m]      : {res.pos_err}  ||e_p|| = {res.pos_err_norm:.6e}")
+    if res.ang_err_rad is not None:
+        print(f"ang err [rad/deg] : {res.ang_err_rad:.6e} rad / {np.rad2deg(res.ang_err_rad):.6e} deg")
+    else:
+        print("ang err [rad/deg] : (orientation masked)")
+
+    # 애니메이션 (q0 -> q_final)
+    manip.animate(q_start=q0, q_end=res.q_final, target_pos=T_target[:3, 3], frames=180, interval=20, show=True)
+
+

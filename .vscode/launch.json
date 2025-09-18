@@ -11,9 +11,22 @@
     },
 
     {
-      "name": "Launch",
+      "name": "Launch: retarget_py",
       "request": "launch",
       "target": "/home/daeyun/Hand-Gripper-ROS2/install/retarget_py/share/retarget_py/launch/hand_to_gripper_launch.py",
+      "launch": [
+        "rviz",
+        "gz",
+        "gzclient",
+        "gzserver"
+      ],
+      "type": "ros2"
+    },
+
+    {
+      "name": "Launch: motor_control_py",
+      "request": "launch",
+      "target": "/home/daeyun/Hand-Gripper-ROS2/install/motor_control_py/share/motor_control_py/launch/motor_control.launch.py",
       "launch": [
         "rviz",
         "gz",

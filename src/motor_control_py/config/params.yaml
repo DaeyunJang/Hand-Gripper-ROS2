@@ -1,0 +1,29 @@
+# /**:
+dxl_control_node:
+  ros__parameters:
+    port_name: "/dev/ttyUSB0"
+    baudrate: 57600
+    protocol: 2.0
+
+    # 저장용(전체 12개, 토픽 joint_names와 동일하게)
+    full_joint_names: [
+      "finger1_j1","finger1_j2","finger1_j3",
+      "finger2_j1","finger2_j2","finger2_j3",
+      "finger3_j1","finger3_j2","finger3_j3",
+      "finger4_j1","finger4_j2","finger4_j3"
+    ]
+
+    # 실제 구동 서브셋(지금은 finger1의 j1~j3만)
+    actuated_names: ["finger1_j1","finger1_j2","finger1_j3"]
+    actuated_ids:   [0, 1, 2]   # 실제 연결 모터 ID
+
+    # 라디안/틱 범위: 스칼라(모두 동일)로 간단히 세팅
+    min_pos_rad: -3.14
+    max_pos_rad: 3.14
+    tick_min: 0
+    tick_max: 4095
+
+    current_limit_raw: 200
+    goal_current_raw: 40   # ✅ Goal Current
+
+    state_rate_hz: 50.0

@@ -29,7 +29,8 @@ setup(
     entry_points={
         'console_scripts': [
             'retarget_node = retarget_py.retarget_node:main',
-            'ik_solver_node = retarget_py.ik_solver:main'
+            'dummy_joint_state_publisher = retarget_py.dummy_jointstate_publisher:main',
+            'joint_state_preview_publisher = retarget_py.joint_state_preview_publisher:main',
         ],
     },
 )

@@ -4,21 +4,29 @@
 from __future__ import annotations
 from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
-import os
+import os, time
 
 import yaml
 import numpy as np
+from scipy.spatial.transform import Rotation as R
+
 import rclpy
 from rclpy.node import Node
 from rclpy.time import Time
 from rclpy.duration import Duration
+from rclpy.parameter import Parameter
+from rcl_interfaces.msg import SetParametersResult
+
 import tf2_ros
 from tf2_ros import TransformException, StaticTransformBroadcaster
 from geometry_msgs.msg import TransformStamped
-from scipy.spatial.transform import Rotation as R
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from sensor_msgs.msg import JointState
+
 from ament_index_python.packages import get_package_share_directory
 
 from retarget_py.algebra_utils import *
+from retarget_py.ik_solver import ThreeDoFManipulator
 
 # ---------- 유틸 ----------
 def add_suffix(frame_name: str, suffix: str = "gripper_scale") -> str:
@@ -37,62 +45,24 @@ class RetargetNode(Node):
 
     def __init__(self) -> None:
         super().__init__("retarget_node")
+        
+        # Dummy joint_state publihser
+        self.declare_parameter("state_topic", "/hand_gripper/joint_states")  # 기본은 실제
+        # self.declare_parameter("state_topic", "/dummy/joint_states")  # 기본은 실제
+        self._state_topic = self.get_parameter("state_topic").get_parameter_value().string_value
+        self._state_sub = None
+        self._subscribe_joint_state(self._state_topic)
 
-        # -------- Parameters --------
-        self.source_frame_name: str = self.declare_parameter(
-            "source_root", "camera_color_optical_frame"
-        ).get_parameter_value().string_value
-
-        self.gripper_base_frame_name: str = self.declare_parameter(
-            "gripper_base_frame", "gripper_base_frame"
-        ).get_parameter_value().string_value
-
-        self.target_suffix: str = self.declare_parameter(
-            "target_suffix", "world_abs"
-        ).get_parameter_value().string_value
-
-        self.scale_suffix: str = self.declare_parameter(
-            "scale_suffix", "gripper_scale"
-        ).get_parameter_value().string_value
-
-        self.rate_hz: float = float(self.declare_parameter("rate_hz", 100.0).value)
-
+        ################################################################################################################################
+        ## Configuration First ##
         # config (yaml) 경로
         self.config_path: str = self.declare_parameter(
             "gripper_config_path", ""
         ).get_parameter_value().string_value
-
         # (legacy) 기존 스케일 파라미터
         self.declare_parameter("scale", 0.0)
         self.declare_parameter("scale_xyz", [])
-
-        # ---- 정규화 관련 파라미터 ----
-        # Wrist -> MCP 실제 기준 길이(양손 동일하게 사용). 단위: meter
-        self.wrist_to_mcp_real_length: float = float(
-            self.declare_parameter("wrist_to_mcp_real_length", 0.06).value  # 예: 60mm
-        )
-        # 어떤 손가락 MCP를 기준으로 할지 (예: index, middle, ring, pinky, thumb)
-        self.scale_finger_name: str = str(
-            self.declare_parameter("scale_finger_name", "index").value
-        ).lower()
-
-        self.enable_finger_scale: bool = self.declare_parameter("finger_scale.enable", False).get_parameter_value().bool_value
-        self.finger_scale: float = float(self.declare_parameter("finger_scale.scale", 1.5).value)
-        # 수치 안정
-        self.norm_eps: float = float(self.declare_parameter("norm_eps", 1e-6).value)
-        # 스케일 EMA
-        self.scale_smooth_alpha: float = float(self.declare_parameter("scale_smooth_alpha", 0.3).value)
-        # legacy scale과 곱할지 여부
-        self.multiply_with_config_scale: bool = bool(self.declare_parameter("multiply_with_config_scale", False).value)
-
-        # -------- TF IO --------
-        self.T_src_to_grip = rot_y_180_mat() # transform matrix of gripper base frame
         
-        self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
-        self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
-        self.static_broadcaster = StaticTransformBroadcaster(self)
-
         # -------- Load Config --------
         cfg = self._load_gripper_config(self.config_path)
 
@@ -118,13 +88,107 @@ class RetargetNode(Node):
             self._pick_yaml_scale(cfg)
             src_scale = "yaml"
 
-        # target_suffix 우선순위
-        if self.get_parameter("target_suffix").get_parameter_value().string_value:
-            self.target_suffix = self.get_parameter("target_suffix").value
-        else:
-            self.target_suffix = str(cfg.get("target_suffix") or self.target_suffix)
+        # target_suffix 우선순위 --> ROS2 param에 등록해서 사용할 것.
+        # if self.get_parameter("target_suffix").get_parameter_value().string_value:
+        #     self.target_suffix = self.get_parameter("target_suffix").value
+        # else:
+        #     self.target_suffix = str(cfg.get("target_suffix") or self.target_suffix)
 
         self.fingers_cfg = cfg.get("fingers") or []  # [{name, base_offset_x, base_offset_y, target_finger:{label,finger}}]
+        
+        self.finger_joint_names_map = self._make_finger_joint_names_map()
+        # 전체 조인트 이름(컨트롤러 yaml의 joints 순서와 반드시 일치해야 함)
+        self.all_joint_names: List[str] = []
+        for fdef in self.fingers_cfg:
+            self.all_joint_names.extend(self.finger_joint_names_map.get(fdef["name"], []))
+
+        ################################################################################################################################
+        
+        # -------- Parameters --------
+        
+        # Robot name
+        self.gripper_name: str = self.declare_parameter(
+            "gripper_name", "hand_gripper"
+        ).get_parameter_value().string_value
+        
+        ## Hand Pose ##
+        self.source_frame_name: str = self.declare_parameter(
+            "source_root", "camera_color_optical_frame"
+        ).get_parameter_value().string_value
+
+        self.gripper_base_frame_name: str = self.declare_parameter(
+            "gripper_base_frame", "gripper_base_frame"
+        ).get_parameter_value().string_value
+
+        self.target_suffix: str = self.declare_parameter(
+            "target_suffix", "world_abs"
+        ).get_parameter_value().string_value
+
+        self.scale_suffix: str = self.declare_parameter(
+            "scale_suffix", "gripper_scale"
+        ).get_parameter_value().string_value
+        
+        ## In this code file, do not over 60.0 Hz (if 100 Hz, timer will overrun --> throttle)
+        self.rate_hz: float = float(self.declare_parameter("rate_hz", 30.0).value)
+
+        # ---- 정규화 관련 파라미터 ----
+        # Wrist -> MCP 실제 기준 길이(양손 동일하게 사용). 단위: meter
+        self.wrist_to_mcp_real_length: float = float(
+            self.declare_parameter("wrist_to_mcp_real_length", 0.06).value  # 예: 60mm
+        )
+        # 어떤 손가락 MCP를 기준으로 할지 (예: index, middle, ring, pinky, thumb)
+        self.scale_finger_name: str = str(
+            self.declare_parameter("scale_finger_name", "index").value
+        ).lower()
+
+        self.enable_finger_scale: bool = self.declare_parameter("finger_scale.enable", False).get_parameter_value().bool_value
+        self.finger_scale: float = float(self.declare_parameter("finger_scale.scale", 1.5).value)
+        # 수치 안정
+        self.norm_eps: float = float(self.declare_parameter("norm_eps", 1e-6).value)
+        # 스케일 EMA
+        self.scale_smooth_alpha: float = float(self.declare_parameter("scale_smooth_alpha", 0.3).value)
+        # legacy scale과 곱할지 여부
+        self.multiply_with_config_scale: bool = bool(self.declare_parameter("multiply_with_config_scale", False).value)
+        
+        
+        self.filter_alpha: float = float(self.declare_parameter("filter.alpha", 0.5).value)
+        
+        # Declare parameters - END #############################
+        
+        # Gripper configuration
+        # __init__ 끝부분에: finger별 로봇 인스턴스 생성
+        # ✅ finger별로 gripper(= ThreeDoFManipulator) 인스턴스를 만든다.
+        self.grippers: Dict[str, ThreeDoFManipulator] = {}  # Dict[str, ThreeDoFManipulator]
+        for fdef in self.fingers_cfg:
+            fname = str(fdef["name"])
+            # self.get_logger().info(f"[gripper init] fingers_cfg={fdef}: fname={fname}")
+            dh_cfg = (fdef.get("dh") or {})
+            try:
+                self.grippers[fname] = self._build_gripper_from_dh(fname, dh_cfg)
+                self.get_logger().info(f"[gripper init] {fname} -> {dh_cfg}: built from DH")
+            except Exception as ex:
+                self.get_logger().warning(f"[gripper init] {fname} -> {dh_cfg}: DH build failed: {ex}")
+        self.get_logger().info(f'self.grippers: {self.grippers}')
+        
+        # Publisher
+        # JointTrajectory publisher (ros2_control joint_trajectory_controller)
+        self.joint_states_cmd_pub = self.create_publisher(JointState, f"/{self.gripper_name}/joint_states_cmd", 1)
+        self.joint_states_cmd_prev = None
+        self.traj_pub = self.create_publisher(
+            JointTrajectory,
+            f"/{self.gripper_name}/joint_trajectory",   # 컨트롤러 이름에 맞게 바꾸기
+            1
+        )
+        self._joint_state_map: Dict[str, float] = {}  # {joint_name: position}
+        self.state_sub = self.create_subscription(JointState, "/joint_states", self._on_joint_state, 1)
+        
+        # -------- TF IO --------
+        self.T_src_to_grip = rot_y_180_mat() # transform matrix of gripper base frame
+        
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self, spin_thread=True)
+        self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
+        self.static_broadcaster = StaticTransformBroadcaster(self)
 
         # 정적 프레임 퍼블리시
         self._publish_static_frames()
@@ -147,9 +211,12 @@ class RetargetNode(Node):
             f"L_real={self.wrist_to_mcp_real_length:.4f} m, smooth_alpha={self.scale_smooth_alpha}, "
             f"multiply_with_config_scale={self.multiply_with_config_scale}, rate={self.rate_hz:.1f}Hz"
         )
+        
+        
+        # 파라미터 변경 감지 → 핫스왑
+        self.add_on_set_parameters_callback(self._on_params)
 
     # ---------- Config 로더 ----------
-
     def _pick_yaml_scale(self, cfg: Dict[str, Any]) -> None:
         sxyz = cfg.get("scale_xyz")
         if sxyz is not None and isinstance(sxyz, (list, tuple)) and len(sxyz) == 3:
@@ -192,14 +259,18 @@ class RetargetNode(Node):
                 label = str(tfing.get("label") or "")
                 finger = str(tfing.get("finger") or "")
                 finger_length = fdef.get("finger_length") or {}
+                dh = fdef.get("dh") or {}
+                
                 if not label or not finger:
                     self.get_logger().warning(f"[config] {name}: target_finger.label/finger required. Skipping.")
                     continue
+                
                 fingers.append({
                     "name": name,
                     "base_offset_x": x, "base_offset_y": y,
                     "target_finger": {"label": label, "finger": finger},
-                    "finger_length": finger_length
+                    "finger_length": finger_length,
+                    "dh": dh            # ✅ 추가: DH 파라미터까지 보관
                 })
 
             out = {
@@ -213,7 +284,61 @@ class RetargetNode(Node):
         except Exception as ex:
             self.get_logger().warning(f"Failed to load gripper config '{cfg_path}': {ex}. Using defaults.")
             return {"scale": 0.1, "target_suffix": "world_abs", "fingers": []}
+        
+    def _make_finger_joint_names_map(self) -> Dict[str, List[str]]:
+        """
+        예: {"finger1": ["finger1_j0_linear", "finger1_j1","finger1_j2","finger1_j3"], ...}
+        """
+        out: Dict[str, List[str]] = {}
+        for fdef in self.fingers_cfg:
+            fname = str(fdef["name"])
+            joints = (fdef.get("dh") or {}).get("joints") or []
+            
+            # Prismatic joint는 수동 추가.
+            names: List[str] = []
+            # names: List[str] = [f"{fname}_j0_linear"]
+            for j in joints:
+                jn = str(j.get("name") or "")
+                if not jn:
+                    continue
+                names.append(f"{fname}_{jn}")   # ✅ 동적 이름 규칙
+            out[fname] = names
+        return out
+    
+    def _build_gripper_from_dh(self, fname: str, dh_cfg: dict) -> ThreeDoFManipulator:
+        joints = (dh_cfg or {}).get("joints") or []
+        # if len(joints) < 3:
+        #     raise ValueError(f"{fname}: need 3 joints in dh.joints")
 
+        j0, j1, j2, j3 = joints
+
+        # ThreeDoFManipulator 가정:
+        #  - L1: d = l1
+        #  - L2: a = l2
+        #  - L3: a = l3
+        l1 = float(j1.get("d", 0.0))
+        l2 = float(j2.get("a", 0.0))
+        l3 = float(j3.get("a", 0.0))
+
+        # 선택: qlim_deg → rad (없으면 클래스 기본값 사용)
+        def qlim_deg_to_rad(j, default):
+            qd = j.get("qlim_deg")
+            if isinstance(qd, (list, tuple)) and len(qd) == 2:
+                lo, hi = float(qd[0]), float(qd[1])
+                return (np.deg2rad(lo), np.deg2rad(hi))
+            return default
+
+        qlim1 = qlim_deg_to_rad(j1, (-np.pi, np.pi))
+        qlim2 = qlim_deg_to_rad(j2, (-np.pi/2, np.pi/2))
+        qlim3 = qlim_deg_to_rad(j3, (-np.pi/2, np.pi/2))
+
+        return ThreeDoFManipulator(
+            l1=l1, l2=l2, l3=l3,
+            qlim1=qlim1, qlim2=qlim2, qlim3=qlim3,
+            name=f"{fname}_3DoFManipulator"
+        )
+        
+    
     # ---------- 프레임 이름/탐색 ----------
 
     def _hand_frame_name(self, label: str, finger: str, joint: str, suffix: str) -> str:
@@ -239,6 +364,30 @@ class RetargetNode(Node):
             f"hand_{label}_base_{self.target_suffix}",
         ]
 
+    ## ROS2 callback function       
+    def _collect_current_positions(self, joint_names: List[str]) -> List[float]:
+        return [self._joint_state_map.get(n, 0.0) for n in joint_names]
+    
+    def _subscribe_joint_state(self, topic: str):
+        if self._state_sub:
+            self.destroy_subscription(self._state_sub)
+        self._state_sub = self.create_subscription(JointState, topic, self._on_joint_state, 1)
+        self.get_logger().info(f"[retarget] subscribing joint state: {topic}")
+    
+    def _on_joint_state(self, msg: JointState) -> None:
+        # 이름->값 매핑 캐시
+        for n, p in zip(msg.name, msg.position):
+            self._joint_state_map[n] = p
+    
+    def _on_params(self, params):
+        for p in params:
+            if p.name == "state_topic" and p.type_ == Parameter.Type.STRING:
+                new_topic = p.value
+                if new_topic != self._state_topic:
+                    self._state_topic = new_topic
+                    self._subscribe_joint_state(new_topic)
+        return SetParametersResult(successful=True)
+    
     # ---------- TF 생성/전송 ----------
 
     def make_tf_from_matrix(self, parent: str, child: str, transform_matrix: np.ndarray, stamp) -> TransformStamped:
@@ -447,10 +596,22 @@ class RetargetNode(Node):
             # self.get_logger().warning("Scale: missing transforms; using design finger_length as fallback.")
             finger_length_observed = finger_length_design
 
-        scale_length = finger_length_design / max(1e-9, finger_length_observed)
+        ##############################################################################################################################
+        ### DY ###
+        # Hand landmark의 스케일 조절 중 링크 길이가 들쑥날쑥하는데, 이거 매핑하는 꼼수임.
+        # 정규화된 손 (world_abs) 프레임 기준으로 검지 관절들의 길이는 0.04~0.06 정도로 측정됨
+        # y=ymin​+(ymax​−ymin​)⋅(x - xmin)/(xma​x−xmin​​)
+        # 아래 예시는 0.4 ~ 0.6 input, 1.0~0.5 output
+        def linear_map(x, in_min=0.04, in_max=0.06, out_min=0.8, out_max=0.5):
+            x = min(max(x, 0.04), 0.06)
+            return out_min + (x - in_min) * (out_max - out_min) / (in_max - in_min)
+        scale_stabilizer = linear_map(finger_length_observed)
+        ##############################################################################################################################
+        
+        scale_length = (scale_stabilizer)* finger_length_design / max(1e-9, finger_length_observed)
         # self.get_logger().info(
         #     f"[{target_finger_primary['label']}/{target_finger_primary['finger']}] "
-        #     f"scale={scale_length} (design={finger_length_design}, observed={finger_length_observed})"
+        #     f"scale={scale_length} (design={finger_length_design}, observed={finger_length_observed}, clip={scale_stabilizer})"
         # )
 
         # --- 4) primary TIP (aligned MCP -> TIP, scaled) ---
@@ -470,6 +631,10 @@ class RetargetNode(Node):
         T_primary_mcp_aligned_to_secondary_tip = self._lookup_transform_matrix(frame_name_secondary_tip, frame_name_primary_mcp_aligned)
         if T_primary_mcp_aligned_to_secondary_tip is not None:
             T_intermediate_from_primary_mcp_to_secondary_tip_scaled = scale_translation(T_primary_mcp_aligned_to_secondary_tip, scale_length)
+            
+            ## z방향이 좀 엄지가 항상 낮게 추정되는 경향이 있어서 임의로 스칼라 값을 더해줌;
+            # world_abs 기준 한 1cm 엄지가 낮게 나오는듯?
+            T_intermediate_from_primary_mcp_to_secondary_tip_scaled[2,3] += scale_length*0.012
 
         T_primary_mcp_to_secondary_mcp = self._lookup_transform_matrix(gripper_finger_secondary_mcp, gripper_finger_primary_mcp)
         if T_primary_mcp_to_secondary_mcp is not None:
@@ -478,7 +643,120 @@ class RetargetNode(Node):
 
     
     
-    
+    def get_target_joints_from_ik(self, finger_index: int, parent_frame: str, tip_frame: str) -> Optional[Tuple[List[str], List[float]]]:
+        """
+        finger_index: self.fingers_cfg의 인덱스(finger1=0, finger2=1, ...)
+        반환: (joint_names_for_that_finger, q_goal)
+        """
+        if not (0 <= finger_index < len(self.fingers_cfg)):
+            self.get_logger().warn(f'finger index not match: 0 ~ {len(self.fingers_cfg)}')
+            return None
+
+        T = self._lookup_transform_matrix(tip_frame, parent_frame)
+        
+        if T is None:
+            return None
+        
+        # check the limit of link's lengthes is less than workspace
+        if np.linalg.norm(T[:3, 3]) >= self.fingers_cfg[finger_index]["finger_length"]:
+            # self.get_logger().warn(f'[get_target_joints_from_ik()] Transform matrix is out of workspace (link length): {np.linalg.norm(T[:3, 3])}')
+            return None
+        
+        # # ✅ 여기에 네 IK 호출
+        fname = self.fingers_cfg[finger_index]["name"]
+        gripper = self.grippers.get(fname)
+        if gripper is None:
+            # self.get_logger().warn(f'No {fname} gripper: {gripper}')
+            return None
+        
+        ik_joint_names = [f"{fname}_j1", f"{fname}_j2", f"{fname}_j3"]
+        
+        # initial pose is 0, pi/2, 0 in 3 dof manipulator
+        q0 = np.array([
+            1.5708 if 'j2' in n else self._joint_state_map.get(n, 0.0)
+            for n in ik_joint_names
+            ], dtype=float)
+        
+        res = gripper.solve(T_target=T, q0=q0, position_only=True, ilimit=20, tol=1e-5)
+        if not res.success:
+            return None
+        
+        # self.get_logger().info(f"finger_index: {finger_index}")
+        # self.get_logger().info(f"parent_frame: {parent_frame}")
+        # self.get_logger().info(f"tip_frame: {tip_frame}")
+        # self.get_logger().info(f"fname: {fname}")
+        # self.get_logger().info(f"gripper: {gripper}")
+        # self.get_logger().info(f"T:\n{T}")
+        # self.get_logger().info(f"ik_joint_names: {ik_joint_names}\n res.q_final.tolist(): {res.q_final.tolist()}")
+        
+        return ik_joint_names, res.q_final.tolist()
+
+    def publish_target_joint_and_trajectory_step_all_fingers(self, finger_solutions: list[tuple[list[str], list[float]]], duration_s: float = 0.1) -> None:
+        jt = JointTrajectory()
+        jt.joint_names = list(self.all_joint_names)
+        self.get_logger().info(f'jt.joint_names: \n{jt.joint_names}')
+
+        # p0: 현재값
+        p0 = JointTrajectoryPoint()
+        p0.positions = self._collect_current_positions(jt.joint_names)
+        p0.time_from_start.sec = 0
+        p0.time_from_start.nanosec = 0
+        
+        
+        goal_map: Dict[str, float] = {}
+        
+        ### Joint 0: prismatic joint 먼저 채우기 ###############3
+        for fdef in self.fingers_cfg:
+            fname = str(fdef["name"])  # "finger1" 등
+            j0_name = f"{fname}_j0_linear"
+
+            gripper_base = f"gripper_{fname}_base"
+            gripper_mcp = f"gripper_{fname}_mcp"
+            T = self._lookup_transform_matrix(gripper_mcp, gripper_base)
+            if T is not None:
+                tx = T[0, 3]
+                if fname in ('finger1', 'finger2'):
+                    goal_map[j0_name] = float(max(0, min(tx, 0.05)))
+                elif fname in ('finger3', 'finger4'):
+                    goal_map[j0_name] = float(max(0, min(tx-0.1, 0.05)))
+
+        # p1: 목표(q_goal들을 전체 순서에 맞게 병합)
+        for names, qs in finger_solutions:
+            for n, q in zip(names, qs):
+                self.get_logger().info(f'n={n}, q={q}')
+                goal_map[n] = float(q)
+
+
+            
+        p1 = JointTrajectoryPoint()
+        p1.positions = [goal_map.get(n, p0.positions[i]) for i, n in enumerate(jt.joint_names)]
+        p1.time_from_start.sec = int(duration_s)
+        p1.time_from_start.nanosec = int((duration_s - int(duration_s)) * 1e9)
+
+        jt.points = [p0, p1]
+        self.traj_pub.publish(jt)
+        
+        # 첫 실행이면 그냥 현재값 저장
+        if self.joint_states_cmd_prev is None:
+            filtered_positions = np.array(p1.positions, dtype=float)
+        else:
+            prev = np.array(self.joint_states_cmd_prev.position, dtype=float)
+            curr = np.array(p1.positions, dtype=float)
+            filtered_positions = self.filter_alpha * prev + (1.0 - self.filter_alpha) * curr
+
+
+        # ✅ JointState 목표 퍼블리시
+        js = JointState()
+        js.header.stamp = self.get_clock().now().to_msg()
+        js.name = jt.joint_names
+        # js.position = p1.positions
+        js.position = filtered_positions.tolist()
+        self.joint_states_cmd_pub.publish(js)
+        
+        self.joint_states_cmd_prev = js
+
+        # self.get_logger().info(f'p1.positions: {p1.positions}')
+
     # ---------- 메인 루프 ----------
 
     def _on_timer(self) -> None:
@@ -486,17 +764,44 @@ class RetargetNode(Node):
         
         stamp = self.get_clock().now().to_msg()
         
+        t0 = time.perf_counter()
         self._publish_static_frames()
-
+        t1 = time.perf_counter()
         # 왼손: finger1 / finger2
         self._process_hand(index_primary=0, index_secondary=1, gripper_finger_primary_number=1, gripper_finger_secondary_number=2, stamp=stamp)
-
+        t2 = time.perf_counter()
         # 오른손: finger3 / finger4
         self._process_hand(index_primary=2, index_secondary=3, gripper_finger_primary_number=3, gripper_finger_secondary_number=4, stamp=stamp)
 
+        # IK
+        solutions = []
+        s1 = self.get_target_joints_from_ik(0, "gripper_finger1_mcp", "gripper_finger1_tip")
+        if s1: solutions.append(s1)
+        else:
+            return
+        s2 = self.get_target_joints_from_ik(1, "gripper_finger2_mcp", "gripper_finger2_tip")
+        if s2: solutions.append(s2)
+        else:
+            return
+        s3 = self.get_target_joints_from_ik(2, "gripper_finger3_mcp", "gripper_finger3_tip")
+        if s3: solutions.append(s3)
+        else:
+            return
+        s4 = self.get_target_joints_from_ik(3, "gripper_finger4_mcp", "gripper_finger4_tip")
+        if s4: solutions.append(s4)
+        else:
+            return
 
+        if solutions:
+            self.publish_target_joint_and_trajectory_step_all_fingers(solutions, duration_s=0.01)  # 주기에 맞춰 0.05~0.3s 조절
+            self.get_logger().info(f'solutions: {solutions}')
+            # self.get_logger().info(f'time: t0-t1: {t1-t0} / t1-t2: {t2-t1} / t2-t3: {t3-t2}')
+            
+        t3 = time.perf_counter()
+        
+        
+        
     # ---------- 경고 스로틀 ----------
-
     def _warn_throttled(self, text: str) -> None:
         from time import monotonic
         now = monotonic()
@@ -504,6 +809,9 @@ class RetargetNode(Node):
         if now - last >= self._warn_interval:
             self.get_logger().warning(text)
             self._last_warn[text] = now
+
+
+    
 
 # ---------- 엔트리 ----------
 
