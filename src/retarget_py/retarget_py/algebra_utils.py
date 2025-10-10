@@ -1,22 +1,29 @@
 #!/usr/bin/env python3
 """
 algebra_utils.py
-- 로봇 좌표계/선형대수 관련 자주 쓰이는 함수 모음
+- Collection of commonly used linear algebra and robotics coordinate system utilities
 """
 
 import math
 import numpy as np
 from scipy.spatial.transform import Rotation as R
-from typing import Dict, Any, List, Optional, Tuple # compatible python < 3.9
+from typing import Dict, Any, List, Optional, Tuple  # compatible with Python < 3.9
 
-# ---------------------- 유틸 ----------------------
+# ---------------------- Utilities ----------------------
 def normalize(v: np.ndarray, eps: float = 1e-12) -> np.ndarray:
-    """Normlaize vector
-    @note
-    normalize & norm are different!!!!
+    """
+    Normalize a vector.
+
+    Note:
+        `normalize` and `norm` are different.
+        This rescales the vector to unit length.
+
+    Args:
+        v (np.ndarray): input vector
+        eps (float): epsilon to avoid division by zero
 
     Returns:
-        np.ndarray: return nomalized vector
+        np.ndarray: normalized vector (or original if norm < eps)
     """
     n = np.linalg.norm(v)
     return v if n < eps else (v / n)
@@ -24,7 +31,18 @@ def normalize(v: np.ndarray, eps: float = 1e-12) -> np.ndarray:
 def angle_between_vectors(v1: np.ndarray, v2: np.ndarray,
                           normal: np.ndarray,
                           degrees: bool = False) -> float:
-    """두 벡터 사이의 부호 있는 각도 (normal 방향 기준)"""
+    """
+    Signed angle between two vectors, defined with respect to a reference normal.
+
+    Args:
+        v1 (np.ndarray): first vector
+        v2 (np.ndarray): second vector
+        normal (np.ndarray): reference normal (to determine sign)
+        degrees (bool): if True returns angle in degrees, otherwise radians
+
+    Returns:
+        float: signed angle
+    """
     v1u = normalize(v1)
     v2u = normalize(v2)
     dot_prod = float(np.clip(np.dot(v1u, v2u), -1.0, 1.0))
@@ -34,45 +52,76 @@ def angle_between_vectors(v1: np.ndarray, v2: np.ndarray,
     return float(sign_dir * (np.rad2deg(theta_abs) if degrees else theta_abs))
 
 def make_homogeneous(rotm: np.ndarray, trans: np.ndarray) -> np.ndarray:
-    """회전행렬 + 평행이동 → 4x4 동차행렬"""
+    """
+    Construct a 4x4 homogeneous transformation matrix.
+
+    Args:
+        rotm (np.ndarray): 3x3 rotation matrix
+        trans (np.ndarray): 3-element translation vector
+
+    Returns:
+        np.ndarray: 4x4 homogeneous transform
+    """
     T = np.eye(4)
     T[:3, :3] = rotm
-    T[:3,  3] = trans.reshape(3)
+    T[:3, 3] = trans.reshape(3)
     return T
 
 def make_inv_homogeneous(T: np.ndarray) -> np.ndarray:
-    """4x4 동차행렬 역행렬"""
+    """
+    Compute the inverse of a 4x4 homogeneous transformation.
+
+    Args:
+        T (np.ndarray): 4x4 homogeneous transform
+
+    Returns:
+        np.ndarray: inverse transform
+    """
     rotm = T[:3, :3]
     trans = T[:3, 3]
     Ti = np.eye(4)
-    Ti[:3,:3] = rotm.T
-    Ti[:3,3] = -rotm.T @ trans
+    Ti[:3, :3] = rotm.T
+    Ti[:3, 3] = -rotm.T @ trans
     return Ti
 
-# ---------------------- 회전/쿼터니언 ----------------------
+# ---------------------- Rotation / Quaternion ----------------------
 def rotm_to_quat(R: np.ndarray, eps=1e-12) -> Tuple[float, float, float, float]:
-        # 안전한 회전행렬 → 쿼터니언
-        # epsilon: prevent zero division
-        
-        # check size
-        R = np.asarray(R, dtype=float)
-        if R.shape == (4, 4):
-            R = R[:3, :3]
-        elif R.shape != (3, 3):
-            raise ValueError("R must be 3x3 or 4x4 matrix")
-        
-        qw = np.sqrt(max(0, 1 + R[0,0] + R[1,1] + R[2,2])) / 2
-        qx = (R[2,1] - R[1,2]) / (4*qw + eps)
-        qy = (R[0,2] - R[2,0]) / (4*qw + eps)
-        qz = (R[1,0] - R[0,1]) / (4*qw + eps)
-        return (qx,qy,qz,qw)
+    """
+    Convert a rotation matrix into a quaternion.
 
+    Args:
+        R (np.ndarray): 3x3 or 4x4 rotation matrix
+        eps (float): epsilon to avoid division by zero
+
+    Returns:
+        tuple: quaternion (qx, qy, qz, qw)
+    """
+    R = np.asarray(R, dtype=float)
+    if R.shape == (4, 4):
+        R = R[:3, :3]
+    elif R.shape != (3, 3):
+        raise ValueError("R must be 3x3 or 4x4 matrix")
+
+    qw = np.sqrt(max(0, 1 + R[0, 0] + R[1, 1] + R[2, 2])) / 2
+    qx = (R[2, 1] - R[1, 2]) / (4 * qw + eps)
+    qy = (R[0, 2] - R[2, 0]) / (4 * qw + eps)
+    qz = (R[1, 0] - R[0, 1]) / (4 * qw + eps)
+    return (qx, qy, qz, qw)
 
 def rotm_to_quat_v2(R: np.ndarray, eps=1e-12) -> Tuple[float, float, float, float]:
     """
-    회전행렬(3x3 또는 4x4 상위 3x3) -> 쿼터니언 (qx, qy, qz, qw)
-    - trace>0 공식 + 대각원소 최대 분기 방식으로 수치 안정성 강화
-    - 최종 쿼터니언 정규화
+    Convert a rotation matrix into a quaternion (qx, qy, qz, qw).
+
+    - Handles both 3x3 or 4x4 (upper 3x3 block) matrices
+    - Uses trace-based method with branching for numerical stability
+    - Normalizes the quaternion before returning
+
+    Args:
+        R (np.ndarray): 3x3 or 4x4 rotation matrix
+        eps (float): epsilon threshold for normalization
+
+    Returns:
+        tuple: quaternion (qx, qy, qz, qw)
     """
     R = np.asarray(R, dtype=float)
     if R.shape == (4, 4):
@@ -110,13 +159,21 @@ def rotm_to_quat_v2(R: np.ndarray, eps=1e-12) -> Tuple[float, float, float, floa
 
     q = np.array([qx, qy, qz, qw], dtype=float)
     n = np.linalg.norm(q)
-    if n < eps:   # prevent zero division
+    if n < eps:   # prevent division by zero
         return (0.0, 0.0, 0.0, 1.0)
     q /= n
     return (float(q[0]), float(q[1]), float(q[2]), float(q[3]))
 
 def quat_to_rotm(qx: float, qy: float, qz: float, qw: float) -> np.ndarray:
-    """쿼터니언(x,y,z,w) -> 회전행렬(3x3)"""
+    """
+    Convert quaternion (x, y, z, w) into a 3x3 rotation matrix.
+
+    Args:
+        qx, qy, qz, qw (float): quaternion components
+
+    Returns:
+        np.ndarray: 3x3 rotation matrix
+    """
     x, y, z, w = qx, qy, qz, qw
     xx, yy, zz = x*x, y*y, z*z
     xy, xz, yz = x*y, x*z, y*z
@@ -128,11 +185,26 @@ def quat_to_rotm(qx: float, qy: float, qz: float, qw: float) -> np.ndarray:
     ], dtype=float)
 
 def scale_translation(T: np.ndarray, scale: float | Tuple[float, float, float]) -> np.ndarray:
-    """병진만 스케일. 회전은 그대로."""
+    """
+    Scale only the translation part of a homogeneous transform.
+
+    Args:
+        T (np.ndarray): 4x4 homogeneous transform
+        scale (float or tuple): scalar or (sx, sy, sz) vector
+
+    Returns:
+        np.ndarray: transformed 4x4 matrix with scaled translation
+    """
     M = T.copy()
     M[:3, 3] = M[:3, 3] * scale
     return M
 
 def rot_y_180_mat() -> np.ndarray:
+    """
+    Generate a homogeneous transform representing a 180° rotation around Y-axis.
+
+    Returns:
+        np.ndarray: 4x4 homogeneous transform (rotation + zero translation)
+    """
     Ry = R.from_euler('y', 180.0, degrees=True).as_matrix()
     return make_homogeneous(Ry, np.zeros(3))

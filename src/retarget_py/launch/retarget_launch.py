@@ -61,7 +61,20 @@ def generate_launch_description():
             # "scale": 0.48,
             "warning_log_flag": False,
         }],
-        # remappings=[("/joint_states", "/sim_joint_states")],
+        remappings=[("/joint_states", "/isaacsim_joint_states")],
+    )
+    
+    retarget_direct_node = Node(
+        package='retarget_py',
+        executable='retarget_direct_node',
+        name='retarget_direct_node',
+        output='screen',
+        parameters=[{
+            # "source_root": "camera_color_optical_frame",
+            # "scale": 0.48,
+            # "warning_log_flag": False,
+        }],
+        # remappings=[("/joint_states", "/isaacsim_joint_states")],
     )
     
     joint_state_preview_node = Node(
@@ -72,6 +85,18 @@ def generate_launch_description():
         parameters=[{
             'cmd_topic': '/hand_gripper/joint_states_cmd',
             'out_topic': '/hand_gripper/joint_states_preview'
+        }]
+    )
+    
+    midas_joint_state_node = Node(
+        package='retarget_py',
+        executable='joint_state_midas_publisher',
+        name='joint_state_midas_publisher',
+        output='screen',
+        parameters=[{
+            'cmd_topic': '/hand_gripper/joint_states_cmd',
+            # 'cmd_topic': '/hand_gripper/joint_states_direct',
+            'out_topic': '/joint_command'
         }]
     )
     
@@ -120,9 +145,12 @@ def generate_launch_description():
 
         handpose_launch,
         retarget_node,
+        # retarget_direct_node,
+        
         # ik_solver_node,
         rviz_node,
         rviz_sideview_node,
         joint_state_preview_node,
+        midas_joint_state_node,
         robot_state_publisher,
     ])

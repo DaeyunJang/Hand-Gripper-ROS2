@@ -57,17 +57,16 @@ class RetargetNode(Node):
         ## Configuration First ##
         # config (yaml) 경로
         self.config_path: str = self.declare_parameter(
-            "gripper_config_path", ""
+            "gripper_config_path", "MIDAS_gripper.yaml"
         ).get_parameter_value().string_value
         # (legacy) 기존 스케일 파라미터
-        self.declare_parameter("scale", 0.0)
+        self.declare_parameter("scale", 1.0)
         self.declare_parameter("scale_xyz", [])
         
         # -------- Load Config --------
         cfg = self._load_gripper_config(self.config_path)
-
         # (legacy) yaml/param 스케일 로딩
-        scale_param = float(self.get_parameter("scale").value or 0.0)
+        scale_param = float(self.get_parameter("scale").value or 1.0)
         scale_xyz_param = self.get_parameter("scale_xyz").value or []
         self.scale_xyz: Optional[np.ndarray] = None
         self.scale_scalar: float = 1.0
@@ -87,15 +86,7 @@ class RetargetNode(Node):
         else:
             self._pick_yaml_scale(cfg)
             src_scale = "yaml"
-
-        # target_suffix 우선순위 --> ROS2 param에 등록해서 사용할 것.
-        # if self.get_parameter("target_suffix").get_parameter_value().string_value:
-        #     self.target_suffix = self.get_parameter("target_suffix").value
-        # else:
-        #     self.target_suffix = str(cfg.get("target_suffix") or self.target_suffix)
-
         self.fingers_cfg = cfg.get("fingers") or []  # [{name, base_offset_x, base_offset_y, target_finger:{label,finger}}]
-        
         self.finger_joint_names_map = self._make_finger_joint_names_map()
         # 전체 조인트 이름(컨트롤러 yaml의 joints 순서와 반드시 일치해야 함)
         self.all_joint_names: List[str] = []
@@ -227,23 +218,20 @@ class RetargetNode(Node):
             self.scale_xyz = None
 
     def _load_gripper_config(self, user_path: str) -> Dict[str, Any]:
-        candidates: List[Path] = []
-        if user_path:
-            candidates.append(Path(user_path).expanduser().resolve())
-        env_p = os.environ.get("HAND_CONFIG_PATH")
-        if env_p:
-            candidates.append(Path(env_p).expanduser().resolve())
+        # Treat user_path as a filename to be searched under package share's config folder.
+        # If user_path is empty, default to "gripper_config.yaml".
+        filename = Path(user_path).name if user_path else "gripper_config.yaml"
         try:
             pkg_share = Path(get_package_share_directory("retarget_py"))
-            candidates.append((pkg_share / "config" / "gripper_config.yaml").resolve())
+            cfg_path = (pkg_share / "config" / filename).resolve()
         except Exception:
-            pass
-        candidates.append((Path(__file__).resolve().parent / "config" / "gripper_config.yaml").resolve())
+            cfg_path = None
 
-        cfg_path = next((c for c in candidates if c.is_file()), None)
-        if not cfg_path:
-            self.get_logger().warning("No gripper_config.yaml found. Using defaults.")
-            return {"scale": 1.0, "target_suffix": "world_abs", "fingers": []}
+        if not cfg_path or not cfg_path.is_file():
+            raise FileNotFoundError(
+                f"Config file '{filename}' not found in retarget_py package share (config/). "
+                f"Set -p gripper_config_path:=<filename-in-config> or ensure the file exists."
+            )
 
         try:
             with open(cfg_path, "r", encoding="utf-8") as f:
@@ -482,7 +470,7 @@ class RetargetNode(Node):
 
     
     # retarget process
-    def _process_hand(
+    def _generate_tf_from_hand_to_gripper(
         self,
         index_primary: int,
         index_secondary: int,
@@ -527,7 +515,7 @@ class RetargetNode(Node):
         """
         if not (0 <= index_primary < len(self.fingers_cfg)) or not (0 <= index_secondary < len(self.fingers_cfg)):
             self.get_logger().warning(
-                f"_process_hand: bad indices (primary={index_primary}, secondary={index_secondary}, len={len(self.fingers_cfg)})"
+                f"[_generate_tf_from_hand_to_gripper()]: bad indices (primary={index_primary}, secondary={index_secondary}, len={len(self.fingers_cfg)})"
             )
             return
 
@@ -662,7 +650,7 @@ class RetargetNode(Node):
             # self.get_logger().warn(f'[get_target_joints_from_ik()] Transform matrix is out of workspace (link length): {np.linalg.norm(T[:3, 3])}')
             return None
         
-        # # ✅ 여기에 네 IK 호출
+        # # ✅ IK 호출
         fname = self.fingers_cfg[finger_index]["name"]
         gripper = self.grippers.get(fname)
         if gripper is None:
@@ -768,10 +756,10 @@ class RetargetNode(Node):
         self._publish_static_frames()
         t1 = time.perf_counter()
         # 왼손: finger1 / finger2
-        self._process_hand(index_primary=0, index_secondary=1, gripper_finger_primary_number=1, gripper_finger_secondary_number=2, stamp=stamp)
+        self._generate_tf_from_hand_to_gripper(index_primary=0, index_secondary=1, gripper_finger_primary_number=1, gripper_finger_secondary_number=2, stamp=stamp)
         t2 = time.perf_counter()
         # 오른손: finger3 / finger4
-        self._process_hand(index_primary=2, index_secondary=3, gripper_finger_primary_number=3, gripper_finger_secondary_number=4, stamp=stamp)
+        self._generate_tf_from_hand_to_gripper(index_primary=2, index_secondary=3, gripper_finger_primary_number=3, gripper_finger_secondary_number=4, stamp=stamp)
 
         # IK
         solutions = []

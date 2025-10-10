@@ -14,11 +14,9 @@ setup(
         # ('share/' + package_name + '/launch', ['launch/hand_to_gripper_launch.py']),
         (os.path.join('share', package_name, 'launch'), glob.glob(os.path.join('launch', '*launch.[pxy][yma]*'))),
         # configuration files
-        ('share/' + package_name + '/config', ['config/rviz_config.rviz']),
-        ('share/' + package_name + '/config', ['config/rviz_config_sideview.rviz']),
-        (os.path.join('share', package_name, 'config'), glob.glob(os.path.join(f'{package_name}', 'config', 'gripper_config.yaml'))),
+        (os.path.join('share', package_name, 'config'), glob.glob(os.path.join('config', '*'))),    # rviz setting & gripper config
+        # (os.path.join('share', package_name, 'config'), glob.glob(os.path.join(f'{package_name}', 'config', '*'))), # robot config
         (os.path.join('share', package_name, 'urdf'), glob.glob(os.path.join('urdf', 'three_dof_manipulator.urdf.xacro'))),
-        # (os.path.join('share', package_name, 'config'), [f'/gripper_config.yaml']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -30,7 +28,9 @@ setup(
     entry_points={
         'console_scripts': [
             'retarget_node = retarget_py.retarget_node:main',
+            'retarget_direct_node = retarget_py.retarget_direct_node:main',
             'dummy_joint_state_publisher = retarget_py.dummy_jointstate_publisher:main',
+            'joint_state_midas_publisher = retarget_py.joint_state_midas_publisher:main',
             'joint_state_preview_publisher = retarget_py.joint_state_preview_publisher:main',
         ],
     },
