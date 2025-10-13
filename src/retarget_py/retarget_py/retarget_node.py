@@ -470,7 +470,7 @@ class RetargetNode(Node):
 
     
     # retarget process
-    def _generate_tf_from_hand_to_gripper(
+    def _process_hand(
         self,
         index_primary: int,
         index_secondary: int,
@@ -515,7 +515,7 @@ class RetargetNode(Node):
         """
         if not (0 <= index_primary < len(self.fingers_cfg)) or not (0 <= index_secondary < len(self.fingers_cfg)):
             self.get_logger().warning(
-                f"[_generate_tf_from_hand_to_gripper()]: bad indices (primary={index_primary}, secondary={index_secondary}, len={len(self.fingers_cfg)})"
+                f"_process_hand: bad indices (primary={index_primary}, secondary={index_secondary}, len={len(self.fingers_cfg)})"
             )
             return
 
@@ -756,10 +756,10 @@ class RetargetNode(Node):
         self._publish_static_frames()
         t1 = time.perf_counter()
         # 왼손: finger1 / finger2
-        self._generate_tf_from_hand_to_gripper(index_primary=0, index_secondary=1, gripper_finger_primary_number=1, gripper_finger_secondary_number=2, stamp=stamp)
+        self._process_hand(index_primary=0, index_secondary=1, gripper_finger_primary_number=1, gripper_finger_secondary_number=2, stamp=stamp)
         t2 = time.perf_counter()
         # 오른손: finger3 / finger4
-        self._generate_tf_from_hand_to_gripper(index_primary=2, index_secondary=3, gripper_finger_primary_number=3, gripper_finger_secondary_number=4, stamp=stamp)
+        self._process_hand(index_primary=2, index_secondary=3, gripper_finger_primary_number=3, gripper_finger_secondary_number=4, stamp=stamp)
 
         # IK
         solutions = []
