@@ -1,0 +1,200 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="hand_gripper">
+
+  <!-- ===== Base link ===== -->
+  <link name="gripper_base_frame">
+    <visual>
+      <geometry><box size="0.2 0.15 0.01"/></geometry>
+      <material name="gray"><color rgba="0.9 0.9 0.9 0.3"/></material>
+    </visual>
+  </link>
+
+  <!-- Finger base (fixed offset from gripper_base_frame) -->
+  <xacro:macro name="finger_base" params="name offset_x offset_y">
+    <joint name="${name}_base_fixed" type="fixed">
+      <parent link="gripper_base_frame"/>
+      <child link="${name}_base"/>
+      <origin xyz="${offset_x} ${offset_y} 0.0" rpy="0 0 0"/>
+    </joint>
+    <link name="${name}_base"/>
+  </xacro:macro>
+
+  <!-- 7-DoF finger (PRRRRRR) with box links -->
+  <xacro:macro name="gripper_7dof_fingers" params="name base_link d1 a2 a3 a4 a5 a6 alpha1 alpha2 alpha3 alpha4 alpha5 alpha6 qlim_j0_lower qlim_j0_upper qlim_j1_lower qlim_j1_upper qlim_j2_lower qlim_j2_upper qlim_j3_lower qlim_j3_upper qlim_j4_lower qlim_j4_upper qlim_j5_lower qlim_j5_upper qlim_j6_lower qlim_j6_upper thickness:=0.002 thickness2:=0.004">
+    <!-- Links -->
+    <link name="${name}_mcp">
+      <visual>
+        <geometry><sphere radius="0.002"/></geometry>
+        <material name="black"><color rgba="0.8 0.8 0.8 0.4"/></material>
+      </visual>
+    </link>
+    <link name="${name}_link1">
+      <visual>
+        <origin xyz="${d1/2} 0 0" rpy="0 0 0"/>
+        <geometry><box size="${d1} ${thickness} ${thickness}"/></geometry>
+        <material name="blue"><color rgba="0.2 0.4 0.9 1"/></material>
+      </visual>
+    </link>
+    <link name="${name}_link2">
+      <visual>
+        <origin xyz="${a2/2} 0 0" rpy="0 0 0"/>
+        <geometry><box size="${a2} ${thickness2} ${thickness2}"/></geometry>
+        <material name="green"><color rgba="0.2 0.8 0.2 1"/></material>
+      </visual>
+    </link>
+    <link name="${name}_link3">
+      <visual>
+        <origin xyz="${a3/2} 0 0" rpy="0 0 0"/>
+        <geometry><box size="${a3} ${thickness} ${thickness}"/></geometry>
+        <material name="orange"><color rgba="1.0 0.6 0.2 1"/></material>
+      </visual>
+    </link>
+    <link name="${name}_link4">
+      <visual>
+        <origin xyz="${a4/2} 0 0" rpy="0 0 0"/>
+        <geometry><box size="${a4} ${thickness} ${thickness}"/></geometry>
+        <material name="yellow"><color rgba="1.0 1.0 0.2 1"/></material>
+      </visual>
+    </link>
+    <link name="${name}_link5">
+      <visual>
+        <origin xyz="${a5/2} 0 0" rpy="0 0 0"/>
+        <geometry><box size="${a5} ${thickness} ${thickness}"/></geometry>
+        <material name="purple"><color rgba="0.5 0.0 0.5 1"/></material>
+      </visual>
+    </link>
+    <link name="${name}_link6">
+      <visual>
+        <origin xyz="${a6/2} 0 0" rpy="0 0 0"/>
+        <geometry><box size="${a6} ${thickness} ${thickness}"/></geometry>
+        <material name="cyan"><color rgba="0.0 1.0 1.0 1"/></material>
+      </visual>
+    </link>
+    <link name="${name}_tip">
+      <visual>
+        <geometry><sphere radius="0.003"/></geometry>
+        <material name="red"><color rgba="0.9 0.2 0.2 1"/></material>
+      </visual>
+    </link>
+
+    <!-- Joints -->
+    <!-- j0: Prismatic (z-axis translation) -->
+    <joint name="${name}_joint0_linear" type="prismatic">
+      <parent link="${name}_base"/>
+      <child link="${name}_mcp"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/> <!-- z-axis movement -->
+      <limit lower="${qlim_j0_lower}" upper="${qlim_j0_upper}" effort="10.0" velocity="5.0"/>
+    </joint>
+    <!-- j1: Rz (roll, z-axis rotation) -->
+    <joint name="${name}_joint1" type="revolute">
+      <parent link="${name}_mcp"/>
+      <child link="${name}_link1"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/> <!-- z-axis rotation -->
+      <limit lower="${qlim_j1_lower}" upper="${qlim_j1_upper}" effort="2.0" velocity="5.0"/>
+    </joint>
+    <joint name="${name}_joint2" type="revolute">
+      <parent link="${name}_link1"/>
+      <child link="${name}_link2"/>
+      <origin xyz="${d1} 0 0" rpy="${alpha1} 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="${qlim_j2_lower}" upper="${qlim_j2_upper}" effort="2.0" velocity="5.0"/>
+    </joint>
+    <joint name="${name}_joint3" type="revolute">
+      <parent link="${name}_link2"/>
+      <child link="${name}_link3"/>
+      <origin xyz="${a2} 0 0" rpy="${alpha2} 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="${qlim_j3_lower}" upper="${qlim_j3_upper}" effort="2.0" velocity="5.0"/>
+    </joint>
+    <joint name="${name}_joint4" type="revolute">
+      <parent link="${name}_link3"/>
+      <child link="${name}_link4"/>
+      <origin xyz="${a3} 0 0" rpy="${alpha3} 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="${qlim_j4_lower}" upper="${qlim_j4_upper}" effort="2.0" velocity="5.0"/>
+    </joint>
+    <joint name="${name}_joint5" type="revolute">
+      <parent link="${name}_link4"/>
+      <child link="${name}_link5"/>
+      <origin xyz="${a4} 0 0" rpy="${alpha4} 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="${qlim_j5_lower}" upper="${qlim_j5_upper}" effort="2.0" velocity="5.0"/>
+    </joint>
+    <joint name="${name}_joint6" type="revolute">
+      <parent link="${name}_link5"/>
+      <child link="${name}_link6"/>
+      <origin xyz="${a5} 0 0" rpy="${alpha5} 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="${qlim_j6_lower}" upper="${qlim_j6_upper}" effort="2.0" velocity="5.0"/>
+    </joint>
+    <!-- Tip (fixed) -->
+    <joint name="${name}_tip_fixed" type="fixed">
+      <parent link="${name}_link6"/>
+      <child link="${name}_tip"/>
+      <origin xyz="${a6} 0 0" rpy="${alpha6} 0 0"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- === Instances (gripper_config.yaml 값 반영) === -->
+  <!-- finger1 (thumb) -->
+  <xacro:finger_base name="finger1" offset_x="-0.075" offset_y="-0.0495"/>
+  <xacro:gripper_7dof_fingers
+    name="finger1"
+    base_link="finger1_base"
+    d1="0.0" a2="0.032" a3="0.038" a4="0.044" a5="0.038" a6="0.040"
+    alpha1="1.57079632679" alpha2="-1.57079632679" alpha3="1.57079632679" alpha4="0.0" alpha5="0.0" alpha6="0.0"
+    qlim_j0_lower="0.0"            qlim_j0_upper="0.15"
+    qlim_j1_lower="-3.1415926535"  qlim_j1_upper="3.1415926535"
+    qlim_j2_lower="0"              qlim_j2_upper="3.1415926535"
+    qlim_j3_lower="-0.78539816339" qlim_j3_upper="0.78539816339"
+    qlim_j4_lower="-1.57079632679" qlim_j4_upper="1.57079632679"
+    qlim_j5_lower="-1.57079632679" qlim_j5_upper="1.57079632679"
+    qlim_j6_lower="-1.57079632679" qlim_j6_upper="1.57079632679"/>
+
+  <!-- finger2 (index) -->
+  <xacro:finger_base name="finger2" offset_x="-0.075" offset_y="-0.0165"/>
+  <xacro:gripper_7dof_fingers
+    name="finger2"
+    base_link="finger2_base"
+    d1="0.0" a2="0.032" a3="0.038" a4="0.044" a5="0.038" a6="0.040"
+    alpha1="1.57079632679" alpha2="-1.57079632679" alpha3="1.57079632679" alpha4="0.0" alpha5="0.0" alpha6="0.0"
+    qlim_j0_lower="0.0"            qlim_j0_upper="0.15"
+    qlim_j1_lower="-3.1415926535"  qlim_j1_upper="3.1415926535"
+    qlim_j2_lower="0"              qlim_j2_upper="3.1415926535"
+    qlim_j3_lower="-0.78539816339" qlim_j3_upper="0.78539816339"
+    qlim_j4_lower="-1.57079632679" qlim_j4_upper="1.57079632679"
+    qlim_j5_lower="-1.57079632679" qlim_j5_upper="1.57079632679"
+    qlim_j6_lower="-1.57079632679" qlim_j6_upper="1.57079632679"/>
+
+  <!-- finger3 (middle) -->
+  <xacro:finger_base name="finger3" offset_x="-0.075" offset_y="0.0165"/>
+  <xacro:gripper_7dof_fingers
+    name="finger3"
+    base_link="finger3_base"
+    d1="0.0" a2="0.032" a3="0.038" a4="0.044" a5="0.038" a6="0.040"
+    alpha1="1.57079632679" alpha2="-1.57079632679" alpha3="1.57079632679" alpha4="0.0" alpha5="0.0" alpha6="0.0"
+    qlim_j0_lower="0.0"            qlim_j0_upper="0.15"
+    qlim_j1_lower="-3.1415926535"  qlim_j1_upper="3.1415926535"
+    qlim_j2_lower="0"              qlim_j2_upper="3.1415926535"
+    qlim_j3_lower="-0.78539816339" qlim_j3_upper="0.78539816339"
+    qlim_j4_lower="-1.57079632679" qlim_j4_upper="1.57079632679"
+    qlim_j5_lower="-1.57079632679" qlim_j5_upper="1.57079632679"
+    qlim_j6_lower="-1.57079632679" qlim_j6_upper="1.57079632679"/>
+
+  <!-- finger4 (ring) -->
+  <xacro:finger_base name="finger4" offset_x="-0.075" offset_y="0.0495"/>
+  <xacro:gripper_7dof_fingers
+    name="finger4"
+    base_link="finger4_base"
+    d1="0.0" a2="0.032" a3="0.038" a4="0.044" a5="0.038" a6="0.040"
+    alpha1="1.57079632679" alpha2="-1.57079632679" alpha3="1.57079632679" alpha4="0.0" alpha5="0.0" alpha6="0.0"
+    qlim_j0_lower="0.0"            qlim_j0_upper="0.15"
+    qlim_j1_lower="-3.1415926535"  qlim_j1_upper="3.1415926535"
+    qlim_j2_lower="0"              qlim_j2_upper="3.1415926535"
+    qlim_j3_lower="-0.78539816339" qlim_j3_upper="0.78539816339"
+    qlim_j4_lower="-1.57079632679" qlim_j4_upper="1.57079632679"
+    qlim_j5_lower="-1.57079632679" qlim_j5_upper="1.57079632679"
+    qlim_j6_lower="-1.57079632679" qlim_j6_upper="1.57079632679"/>
+</robot>

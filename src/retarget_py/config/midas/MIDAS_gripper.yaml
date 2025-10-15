@@ -1,7 +1,6 @@
 gripper:
   hardware_information:
     - num_of_motors: 3
-    -
   scale: 0.24
   # scale_xyz: [0.12, 0.12, 0.12]
   target_suffix: world_abs

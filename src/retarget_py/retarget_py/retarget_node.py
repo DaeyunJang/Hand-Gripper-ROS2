@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import annotations
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Union, Callable
 from pathlib import Path
 import os, time
 
@@ -57,17 +57,20 @@ class RetargetNode(Node):
         ## Configuration First ##
         # config (yaml) 경로
         self.config_path: str = self.declare_parameter(
-            "gripper_config_path", "MIDAS_gripper.yaml"
+            "gripper_config_path", "gripper_config.yaml"
         ).get_parameter_value().string_value
         # (legacy) 기존 스케일 파라미터
         self.declare_parameter("scale", 1.0)
         self.declare_parameter("scale_xyz", [])
+        self.declare_parameter("human_stretch_finger_length", 0.06)
         
         # -------- Load Config --------
         cfg = self._load_gripper_config(self.config_path)
         # (legacy) yaml/param 스케일 로딩
         scale_param = float(self.get_parameter("scale").value or 1.0)
         scale_xyz_param = self.get_parameter("scale_xyz").value or []
+        self.human_stretch_finger_length = float(self.get_parameter("human_stretch_finger_length").value or 0.06)
+        
         self.scale_xyz: Optional[np.ndarray] = None
         self.scale_scalar: float = 1.0
         if scale_param > 0.0:
@@ -223,7 +226,7 @@ class RetargetNode(Node):
         filename = Path(user_path).name if user_path else "gripper_config.yaml"
         try:
             pkg_share = Path(get_package_share_directory("retarget_py"))
-            cfg_path = (pkg_share / "config" / filename).resolve()
+            cfg_path = (pkg_share / "config" / "patrol" / filename).resolve()
         except Exception:
             cfg_path = None
 
@@ -272,6 +275,77 @@ class RetargetNode(Node):
         except Exception as ex:
             self.get_logger().warning(f"Failed to load gripper config '{cfg_path}': {ex}. Using defaults.")
             return {"scale": 0.1, "target_suffix": "world_abs", "fingers": []}
+        
+    def _get_finger_cfg_value(
+        self,
+        finger: Union[int, str, Dict[str, str]],
+        key: str,
+        default: Any = None,
+        cast: Optional[Callable[[Any], Any]] = None
+    ) -> Any:
+        """
+        ** Created by GPT **
+        범용 조회기: self.fingers_cfg에서 finger(인덱스/이름/'target_finger' dict)로 항목을 찾아
+        key (예: 'base_offset_x' 또는 'target_finger.label' 같은 nested key)를 반환.
+        - finger: int (0-based index) or str (e.g. 'finger1' or 'Finger1') or dict like {'label':'left','finger':'index'}
+        - key: dot(.)으로 중첩 조회 가능, 예: 'target_finger.label'
+        - default: 키가 없을 때 반환값
+        - cast: 반환값에 적용할 함수(예: float, int, str 등)
+        """
+        # 1) 찾기: fdef (dict) 결정
+        fdef = None
+        # by index (int)
+        if isinstance(finger, int):
+            if 0 <= finger < len(self.fingers_cfg):
+                fdef = self.fingers_cfg[finger]
+        # by name (str) -> match against fdef["name"]
+        elif isinstance(finger, str):
+            key_name = finger.lower()
+            for fd in self.fingers_cfg:
+                if str(fd.get("name", "")).lower() == key_name:
+                    fdef = fd
+                    break
+        # by mapping dict {'label':..., 'finger':...}
+        elif isinstance(finger, dict):
+            tlabel = str(finger.get("label", "")).lower()
+            tfinger = str(finger.get("finger", "")).lower()
+            for fd in self.fingers_cfg:
+                tf = fd.get("target_finger", {}) or {}
+                if str(tf.get("label", "")).lower() == tlabel and str(tf.get("finger", "")).lower() == tfinger:
+                    fdef = fd
+                    break
+
+        # if not found -> default
+        if fdef is None:
+            return default if cast is None else (cast(default) if default is not None else default)
+
+        # 2) nested key lookup
+        cur: Any = fdef
+        for part in key.split("."):
+            if isinstance(cur, dict) and part in cur:
+                cur = cur[part]
+            else:
+                # try case-insensitive match for dict keys
+                if isinstance(cur, dict):
+                    matched = None
+                    lower_part = part.lower()
+                    for k in cur.keys():
+                        if str(k).lower() == lower_part:
+                            matched = cur[k]
+                            break
+                    if matched is not None:
+                        cur = matched
+                        continue
+                # not found
+                return default if cast is None else (cast(default) if default is not None else default)
+
+        # 3) cast if requested
+        if cast is not None:
+            try:
+                return cast(cur)
+            except Exception:
+                return default if cast is None else (cast(default) if default is not None else default)
+        return cur
         
     def _make_finger_joint_names_map(self) -> Dict[str, List[str]]:
         """
@@ -330,6 +404,18 @@ class RetargetNode(Node):
     # ---------- 프레임 이름/탐색 ----------
 
     def _hand_frame_name(self, label: str, finger: str, joint: str, suffix: str) -> str:
+        """Make string of hand frame name on TF
+        e.g. 'hand_left_index_mcp_world_abs'
+
+        Args:
+            label (str): 'left' or 'right'
+            finger (str): 'thumb', 'index', 'middle', 'pinky', 'little'
+            joint (str): 'mcp', 'dip', 'pip', 'tip'
+            suffix (str): 'world_abs'(Default), 'canonical'
+
+        Returns:
+            str: hand frame name on TF
+        """
         return f"hand_{label}_{finger}_{joint}_{suffix}"
 
     def _scaled_name(self, frame: str) -> str:
@@ -405,7 +491,8 @@ class RetargetNode(Node):
         stamp = self.get_clock().now().to_msg()
 
         # source_root -> gripper_base_frame (Ry180)
-        T = rot_y_180_mat()
+        T = self.T_src_to_grip  # T = rot_y_180_mat()
+        
         tfmsg = self.make_tf_from_matrix(
             parent=self.source_frame_name,
             child=self.gripper_base_frame_name,
@@ -469,167 +556,366 @@ class RetargetNode(Node):
         return float(np.linalg.norm(a - b))
 
     
-    # retarget process
-    def _process_hand(
+    def _retarget_finger_pose_from_hand_to_gripper(
         self,
-        index_primary: int,
-        index_secondary: int,
-        gripper_finger_primary_number: int,
-        gripper_finger_secondary_number: int,
+        index: int,
+        gripper_finger_number: int,
         stamp
     ) -> None:
-        """Generate gripper coordinate system
+        """
         @author DY
-        @date 2025-9-11
+        @date 2025-10-15
+        @TODO retarget finger cooridnate system from human hand to gripper.
         
-        1) Pre-process
-        A transformation matrix is computed from the {gripper_base_frame} to the position of each {hand coordinate system mcp},
-        applying translation only and ignoring the rotation component. This transformation is then published via TF.
-        In other words, it is defined in advance to enable the subsequent creation of {gripper_finger{i}_mcp} in section 2) and the transformation from {gripper_finger{i}_mcp} to {gripper_finger{i}_tip} in section 3).
+        Process overview: attach wrist-oriented MCP frame, match to 6-DOF gripper finger, and compute scaled target pose.
+
+        1) Attach wrist-oriented MCP frame to estimated hand_finger_mcp
+        - 1-1) Compute transform T_wrist_to_mcp and extract its translation x component: tx = T_wrist_to_mcp[:3,3].x
+        - 1-2) From the static frame 'gripper_finger_base' apply a prismatic translation along its x-axis.
+                translation_distance = tx - offset_x
+                where offset_x is the initial x displacement of gripper_finger_base relative to gripper_base_frame
+                (see _publish_static_frames() and config/gripper_config.yaml for base_offset_x).
+        - @NOTE: gripper_finger_base must already be published as a static frame.
+
+        Result: the estimated hand_finger_mcp now has a wrist-oriented MCP frame attached.
+
+        2) Attach the 6-DOF gripper-finger MCP frame
+        - 2-1) Apply a fixed reorientation RotX(-90°) to the mcp_wrist_oriented frame and publish it as:
+                    "mcp_matched_gripper_finger_mcp".
+        - 2-2) The `mcp_matched_gripper_finger_mcp` frame is defined to match the kinematic reference of the designed 6-DOF finger.
+                (This convention is documented in the design notes; docs to be updated — TBD.)
+        - 2-3) Compute the transform from `mcp_matched_gripper_finger_mcp` to hand_finger_tip:
+                    T_target = T(`mcp_matched_gripper_finger_mcp` -> hand_finger_tip)
+                This transform encodes the desired end-effector pose (position + orientation) for the 6-DOF finger and is used
+                as the IK target (e.g., in on_timer()).
+        - @NOTE If length of hand finger and gripper finger is different, follow step 3)
+
+        3) Scale the target pose to account for length difference between human finger and gripper finger
+        - Motivation: human finger length != gripper finger design length.
+        I suggest 2 methods to build easily
+        # METHOD 1
+        Use a simple linear mapping from observed human finger length to gripper design length.
+        From T_target:
+            - Keep orientation (rotation matrix) unchanged.
+            - Keep x and y translation components unchanged.
+            - Apply scaling factor only to the z translation component:
+                    t' = [tx, ty, tz * scale_factor]
         
-        2) Define the frame {gripper_finger_mcp} from frame {gripper_finger_base}
-            - A new frame {gripper_finger{i}_mcp} is generated by applying only the translational component along the x-axis from the transformation between {gripper_finger_base} and {hand_{label}_{index or thumb}_mcp_world_abs}.
-                {gripper_finger{i}_base} is defined `@function _publish_static_frames()`
-            * TBD: software limit have to be generated. -> linear guide limit
+        # METHOD 2
+        Compute scale_factor by linear mapping:
+            - observed_length = sum( norm(mcp->pip), norm(pip->dip), norm(dip->tip) )  # from hand TFs
+            - design_length = fingers_cfg[finger_index]["finger_length"]  # from gripper_config.yaml (units consistent)
+            - scale_factor = linear_map(observed_length, in_range, out_range) * (design_length / max(eps, observed_length))
+                (Or simply: scale_factor = design_length / max(eps, observed_length), optionally stabilized/clipped.)
+            - Note: you may clamp/stabilize the mapping to avoid extreme scaling (e.g., clamp observed_length to [min,max]).
+        Use the transform with scaled z as the final IK target.
+
+        @NOTE:
+        - Publish TF at each major step: wrist-oriented MCP, mcp_matched_gripper_finger_mcp, and final scaled target (or the frame used to compute the IK target).
+        - Ensure units are consistent (meters vs mm, we use meter) when reading finger_length from gripper_config.yaml.
+        - offset_x is the static base offset published in _publish_static_frames() (base_offset_x in YAML).
+        @ NOTE:
+        If you use mediapipe, estimated finger tips of each finger are not precise.
+        In my case, I compensate Z value w.r.t mcp_matched_gripper_finger_mcp
+            - thumb  : maintain
+            - index  : close to mcp (-)    e.g. -0.15
+            - middle : maintain
+            - ring   : far away from mcp (+) e.g. 0.15
+            - pinky  : far away from mcp (+) e.g. 0.15
             
-        3) Convert hand finger scale to gripper finger scale
-        The scale between the hand coordinate system (with the suffix 'world_abs') of the desired finger (e.g., index finger) and the predefined gripper finger length is computed.
-        The finger length of the desired finger is obtained by summing the norms of the translational components from the transformation matrices of mcp→pip, pip→dip, and dip→tip.
-        The actual hardware design parameter "finger_length"(refer to config/gripper_config.yaml) is then used to adjust the scale factors for the x, y, and z components.
-        After obtaining scale value, make new transform matrices {gripper_finger{i}_mcp}->{gripper_finger{i}_tip}.
-        This matrices are calculated like code below
-            T_gripper_finger{i}_mcp_to_tip = T_{finger(index)}_mcp_to_tip
-            T_gripper_finger{i}_mcp_to_tip[:3, 3] = T_gripper_finger{i}_mcp_to_tip[:3, 3] * scale
-            
-        In our setup, finger1 and finger2 cannot move independently.
-        Therefore, if the scale mapping is performed using finger1,
-        the {gripper_finger2_tip} must be represented (re-anchored) with respect to {gripper_finger1_mcp} before applying the scaling.
-        
-        ** In each step of '1)', '2)'and '3)', tf must be published. **
+
         """
-        
-        """
-        한 손(두 개의 결합된 finger)을 처리한다.
-        - primary finger로 스케일 계산
-        - secondary tip은 스케일 적용 전, primary MCP에 대해 re-anchoring
-        """
-        if not (0 <= index_primary < len(self.fingers_cfg)) or not (0 <= index_secondary < len(self.fingers_cfg)):
+
+        if not (0 <= index < len(self.fingers_cfg)):
             self.get_logger().warning(
-                f"_process_hand: bad indices (primary={index_primary}, secondary={index_secondary}, len={len(self.fingers_cfg)})"
+                f"_retarget_from_hand_to_gripper: bad indices (primary={index}, len={len(self.fingers_cfg)})"
             )
             return
 
-        target_finger_primary = self.fingers_cfg[index_primary]["target_finger"]      # {label, finger}
-        target_finger_secondary = self.fingers_cfg[index_secondary]["target_finger"]  # {label, finger}
+        target_finger = self.fingers_cfg[index]["target_finger"]      # {label, finger}
 
-        # --- hand frame names ---
-        frame_name_primary_mcp = self._hand_frame_name(target_finger_primary["label"], target_finger_primary["finger"], "mcp", self.target_suffix)
-        frame_name_primary_pip = self._hand_frame_name(target_finger_primary["label"], target_finger_primary["finger"], "pip", self.target_suffix)
-        frame_name_primary_dip = self._hand_frame_name(target_finger_primary["label"], target_finger_primary["finger"], "dip", self.target_suffix)
-        frame_name_primary_tip = self._hand_frame_name(target_finger_primary["label"], target_finger_primary["finger"], "tip", self.target_suffix)
+        # --- declare hand frame names ---
+        # hand work space
+        frame_name_wrist = f"hand_{target_finger['label']}_wrist_{self.target_suffix}"
+        frame_name_mcp = self._hand_frame_name(target_finger['label'], target_finger['finger'], "mcp", self.target_suffix)
+        frame_name_pip = self._hand_frame_name(target_finger['label'], target_finger['finger'], "pip", self.target_suffix)
+        frame_name_dip = self._hand_frame_name(target_finger['label'], target_finger['finger'], "dip", self.target_suffix)
+        frame_name_tip = self._hand_frame_name(target_finger['label'], target_finger['finger'], "tip", self.target_suffix)
 
-        frame_name_secondary_mcp = self._hand_frame_name(target_finger_secondary["label"], target_finger_secondary["finger"], "mcp", self.target_suffix)
-        frame_name_secondary_tip = self._hand_frame_name(target_finger_secondary["label"], target_finger_secondary["finger"], "tip", self.target_suffix)
-
-        # --- 1) align MCPs to gripper_base (translation-only) ---
-        T_gripper_base_to_primary_mcp_world_abs = self._lookup_transform_matrix(frame_name_primary_mcp, self.gripper_base_frame_name)
-        T_gripper_base_to_secondary_mcp_world_abs = self._lookup_transform_matrix(frame_name_secondary_mcp, self.gripper_base_frame_name)
-
-        frame_name_primary_mcp_aligned = self._hand_frame_name(target_finger_primary["label"], target_finger_primary["finger"], "mcp", suffix="gripper_aligned")
-        frame_name_secondary_mcp_aligned = self._hand_frame_name(target_finger_secondary["label"], target_finger_secondary["finger"], "mcp", suffix="gripper_aligned")
-
-        if T_gripper_base_to_primary_mcp_world_abs is not None:
-            trans = T_gripper_base_to_primary_mcp_world_abs[:3, 3]
-            self._send_tf_from_matrix(self.gripper_base_frame_name, frame_name_primary_mcp_aligned, make_homogeneous(np.eye(3), trans), stamp=stamp)
-        # else:
-        #     self.get_logger().warning("Primary MCP alignment skipped: T_gripper_base_to_primary_mcp_world_abs is None.")
-
-        if T_gripper_base_to_secondary_mcp_world_abs is not None:
-            trans = T_gripper_base_to_secondary_mcp_world_abs[:3, 3]
-            self._send_tf_from_matrix(self.gripper_base_frame_name, frame_name_secondary_mcp_aligned, make_homogeneous(np.eye(3), trans), stamp=stamp)
-        # else:
-        #     self.get_logger().warning("Secondary MCP alignment skipped: T_gripper_base_to_secondary_mcp_world_abs is None.")
-
-        # --- 2) define gripper_finger{N}_mcp from gripper_finger{N}_base (x-translation only) ---
-        gripper_finger_primary_base = f"gripper_finger{gripper_finger_primary_number}_base"
-        gripper_finger_secondary_base = f"gripper_finger{gripper_finger_secondary_number}_base"
-        gripper_finger_primary_mcp  = f"gripper_finger{gripper_finger_primary_number}_mcp"
-        gripper_finger_secondary_mcp = f"gripper_finger{gripper_finger_secondary_number}_mcp"
-        gripper_finger_primary_tip  = f"gripper_finger{gripper_finger_primary_number}_tip"
-        gripper_finger_secondary_tip = f"gripper_finger{gripper_finger_secondary_number}_tip"
-
-        T_base_to_primary_mcp_aligned = self._lookup_transform_matrix(frame_name_primary_mcp_aligned, gripper_finger_primary_base)
-        if T_base_to_primary_mcp_aligned is not None:
-            tx = float(T_base_to_primary_mcp_aligned[0, 3])
-            self._send_tf_from_matrix(gripper_finger_primary_base, gripper_finger_primary_mcp, make_homogeneous(np.eye(3), np.array([tx, 0.0, 0.0], dtype=float)), stamp=stamp)
-
-        T_base_to_secondary_mcp_aligned = self._lookup_transform_matrix(frame_name_secondary_mcp_aligned, gripper_finger_secondary_base)
-        if T_base_to_secondary_mcp_aligned is not None:
-            tx = float(T_base_to_secondary_mcp_aligned[0, 3])
-            self._send_tf_from_matrix(gripper_finger_secondary_base, gripper_finger_secondary_mcp, make_homogeneous(np.eye(3), np.array([tx, 0.0, 0.0], dtype=float)), stamp=stamp)
-
-        # --- 3) scale from primary chain length ---
-        T_primary_mcp_to_pip = self._lookup_transform_matrix(frame_name_primary_mcp, frame_name_primary_pip)
-        T_primary_pip_to_dip = self._lookup_transform_matrix(frame_name_primary_pip, frame_name_primary_dip)
-        T_primary_dip_to_tip = self._lookup_transform_matrix(frame_name_primary_dip, frame_name_primary_tip)
-
-        finger_length_design = float(self.fingers_cfg[index_primary]["finger_length"])
-        if T_primary_mcp_to_pip is not None and T_primary_pip_to_dip is not None and T_primary_dip_to_tip is not None:
-            finger_length_observed = float(
-                np.linalg.norm(T_primary_mcp_to_pip[:3, 3]) +
-                np.linalg.norm(T_primary_pip_to_dip[:3, 3]) +
-                np.linalg.norm(T_primary_dip_to_tip[:3, 3])
-            )
-        else:
-            # self.get_logger().warning("Scale: missing transforms; using design finger_length as fallback.")
-            finger_length_observed = finger_length_design
-
-        ##############################################################################################################################
-        ### DY ###
-        # Hand landmark의 스케일 조절 중 링크 길이가 들쑥날쑥하는데, 이거 매핑하는 꼼수임.
-        # 정규화된 손 (world_abs) 프레임 기준으로 검지 관절들의 길이는 0.04~0.06 정도로 측정됨
-        # y=ymin​+(ymax​−ymin​)⋅(x - xmin)/(xma​x−xmin​​)
-        # 아래 예시는 0.4 ~ 0.6 input, 1.0~0.5 output
-        def linear_map(x, in_min=0.04, in_max=0.06, out_min=0.8, out_max=0.5):
-            x = min(max(x, 0.04), 0.06)
-            return out_min + (x - in_min) * (out_max - out_min) / (in_max - in_min)
-        scale_stabilizer = linear_map(finger_length_observed)
-        ##############################################################################################################################
+        # gripper finger frame in hand work space
+        frame_name_mcp_wrist_oriented = self._hand_frame_name(target_finger["label"], target_finger["finger"], "mcp", suffix="wrist_oriented")
+        frame_name_mcp_matched_gripper_finger_mcp = self._hand_frame_name(target_finger['label'], target_finger['finger'], "mcp", suffix="matched_gripper_finger_mcp")
         
-        scale_length = (scale_stabilizer)* finger_length_design / max(1e-9, finger_length_observed)
-        # self.get_logger().info(
-        #     f"[{target_finger_primary['label']}/{target_finger_primary['finger']}] "
-        #     f"scale={scale_length} (design={finger_length_design}, observed={finger_length_observed}, clip={scale_stabilizer})"
-        # )
-
-        # --- 4) primary TIP (aligned MCP -> TIP, scaled) ---
-        T_primary_mcp_aligned_to_tip = self._lookup_transform_matrix(frame_name_primary_tip, frame_name_primary_mcp_aligned)
-        if T_primary_mcp_aligned_to_tip is not None:
-            # translation values are multipled as much as scale.
-            self._send_tf_from_matrix(gripper_finger_primary_mcp, gripper_finger_primary_tip, scale_translation(T_primary_mcp_aligned_to_tip, scale_length), stamp=stamp)
-
-            # check length
-            T_scale = scale_translation(T_primary_mcp_aligned_to_tip, scale_length)
-            trans = T_scale[:3, 3]
-            l = np.linalg.norm(trans)
-            # self.get_logger().info(f"scaled mcp->tip length: {l} m")
+        # gripper work space
+        frame_name_gripper_finger_base = f"gripper_finger{gripper_finger_number}_base"
+        frame_name_gripper_finger_mcp  = f"gripper_finger{gripper_finger_number}_mcp"
+        frame_name_gripper_finger_tip  = f"gripper_finger{gripper_finger_number}_tip"
         
-        # --- 5) secondary TIP (re-anchored to primary MCP, then scaled) ---
-        T_intermediate_from_primary_mcp_to_secondary_tip_scaled = np.eye(4)
-        T_primary_mcp_aligned_to_secondary_tip = self._lookup_transform_matrix(frame_name_secondary_tip, frame_name_primary_mcp_aligned)
-        if T_primary_mcp_aligned_to_secondary_tip is not None:
-            T_intermediate_from_primary_mcp_to_secondary_tip_scaled = scale_translation(T_primary_mcp_aligned_to_secondary_tip, scale_length)
+        # Process 1)
+        T_wrist_to_mcp = self._lookup_transform_matrix(target=frame_name_mcp, source=frame_name_wrist)
+        if T_wrist_to_mcp is not None:
+            # publish TF of mcp having wrist orientation
+            trans = T_wrist_to_mcp[:3, 3]
+            self._send_tf_from_matrix(frame_name_wrist, frame_name_mcp_wrist_oriented, make_homogeneous(np.eye(3), trans), stamp=stamp)
+            # For gripper_finger_mcp
+
+            # publish TF of gripper work-space
+            # TF named `frame_name_gripper_finger_base` must be published before
+            tx = trans[0]
+            offset_x = self.fingers_cfg[index]["base_offset_x"]
+            move = tx + (-1)*offset_x
+
+            self._send_tf_from_matrix(frame_name_gripper_finger_base, frame_name_gripper_finger_mcp, make_homogeneous(np.eye(3), np.array([move, 0.0, 0.0], dtype=float)), stamp=stamp)
+
+            # self.get_logger().info(f"[finger IDX: {index}] tx: {tx}")
+        
+
+        # Process 2)
+        # Declare gripper finger base coordinate system on hand MCP
+        self._send_tf_from_matrix(frame_name_mcp_wrist_oriented, frame_name_mcp_matched_gripper_finger_mcp, rot_x_minus90_mat(), stamp=stamp)
+
+        # Process 3) - scale Z
+        gripper_finger_length_design = float(self.fingers_cfg[index]["finger_length"])
+        scale = self.human_stretch_finger_length
+        T_gripper_finger_mcp_to_finger_tip = self._lookup_transform_matrix(target=frame_name_tip, source=frame_name_mcp_matched_gripper_finger_mcp)
+        
+        if T_gripper_finger_mcp_to_finger_tip is not None:
             
-            ## z방향이 좀 엄지가 항상 낮게 추정되는 경향이 있어서 임의로 스칼라 값을 더해줌;
-            # world_abs 기준 한 1cm 엄지가 낮게 나오는듯?
-            T_intermediate_from_primary_mcp_to_secondary_tip_scaled[2,3] += scale_length*0.012
+            # -----------------------------------------------------------------------------------------------
+            # METHOD 1
+            # simple z scale using linear mapping
+            # make scale of Z
+            # world_delta_z = T_gripper_finger_mcp_to_finger_tip[2, 3]
+            # ratio = abs(world_delta_z / scale)
+            # target_z = ratio * gripper_finger_length_design
+            # T_scaled = T_gripper_finger_mcp_to_finger_tip
+            # T_scaled[2,3] = target_z
+            # self._send_tf_from_matrix(frame_name_gripper_finger_mcp, frame_name_gripper_finger_tip, T_scaled, stamp=stamp)
+            
+            # -----------------------------------------------------------------------------------------------
+            # METHOD 2 
+            # compare between hand finger length and gripper finger length
+            # scale = (designed length) / (observed length)
+            # @NOTE Hand landmark의 스케일 조절 중 링크 길이가 들쑥날쑥하는데, stablizer는 이를 조금 완화 매핑하는 꼼수임.
+            #       정규화된 손 (world_abs) 프레임 기준으로 검지 관절들의 길이는 0.04~0.06 정도로 측정됨
+            #       y=ymin​+(ymax​−ymin​)⋅(x - xmin)/(xma​x−xmin​​)
+            #       아래 예시는 0.4 ~ 0.6 input, 1.0~0.6 output
+            
+            T_mcp_to_pip = self._lookup_transform_matrix(frame_name_mcp, frame_name_pip)
+            T_pip_to_dip = self._lookup_transform_matrix(frame_name_pip, frame_name_dip)
+            T_dip_to_tip = self._lookup_transform_matrix(frame_name_dip, frame_name_tip)
 
-        T_primary_mcp_to_secondary_mcp = self._lookup_transform_matrix(gripper_finger_secondary_mcp, gripper_finger_primary_mcp)
-        if T_primary_mcp_to_secondary_mcp is not None:
-            T_secondary_mcp_aligned_to_secondary_tip = make_inv_homogeneous(T_primary_mcp_to_secondary_mcp) @ T_intermediate_from_primary_mcp_to_secondary_tip_scaled
-            self._send_tf_from_matrix(gripper_finger_secondary_mcp, gripper_finger_secondary_tip, T_secondary_mcp_aligned_to_secondary_tip, stamp=stamp)
+            finger_length_design = float(self.fingers_cfg[index]["finger_length"])  # stretched gripper finger length, meter
+            if T_mcp_to_pip is not None and T_pip_to_dip is not None and T_dip_to_tip is not None:
+                finger_length_observed = float(
+                    np.linalg.norm(T_mcp_to_pip[:3, 3]) +
+                    np.linalg.norm(T_pip_to_dip[:3, 3]) +
+                    np.linalg.norm(T_dip_to_tip[:3, 3])
+                )
+            else:
+                # self.get_logger().warning("Scale: missing transforms; using design finger_length as fallback.")
+                finger_length_observed = finger_length_design
 
-    
+
+            def _linear_map(x, in_min=0.04, in_max=0.06, out_min=1.0, out_max=0.6):
+                x = min(max(x, 0.04), 0.06)
+                return out_min + (x - in_min) * (out_max - out_min) / (in_max - in_min)
+            
+            scale_stabilizer = _linear_map(finger_length_observed)
+            scale_length = (scale_stabilizer)* finger_length_design / max(1e-9, finger_length_observed)
+            
+            # --- 4) primary TIP (aligned MCP -> TIP, scaled) ---
+            # 실험적으로 mcp기준에서의 tip 위치가 손가락마다 좀 달라 보상값을 추가.
+            z_compensated = 0.0   # mediapipe estimation error
+            if index == 1:   # index finger
+                z_compensated = -0.015
+            elif index == 2: # middle finger
+                z_compensated = 0.00
+            elif index == 3: # ring finger
+                z_compensated = 0.015
+            elif index == 4: # pinky finger
+                z_compensated = 0.015
+            else:
+                z_compensated = 0.00
+                
+            T_mcp_aligned_to_tip = self._lookup_transform_matrix(frame_name_tip, frame_name_mcp_matched_gripper_finger_mcp)
+            if T_mcp_aligned_to_tip is not None:
+                # translation values are multipled as much as scale.
+                T_scale = scale_translation(T_gripper_finger_mcp_to_finger_tip, scale_length)
+                self.get_logger().info(f"T_scale (before): {T_scale}")
+                T_scale[2, 3] = T_scale[2, 3] + z_compensated
+                self.get_logger().info(f"T_scale (after) : {T_scale}")
+                self._send_tf_from_matrix(frame_name_gripper_finger_mcp, frame_name_gripper_finger_tip, T_scale, stamp=stamp)
+
+                # check length
+                trans = T_scale[:3, 3]
+                l = np.linalg.norm(trans)
+                # self.get_logger().info(f"[finger IDX: {index}] observed len: {finger_length_observed} | scaled len: {l} m | z_comp = {z_compensated}")
+            ##############################################################################################################################
+        
+
+
+# def _retarget_pinch_motion(
+#         self,
+#         index_primary: int,
+#         index_secondary: int,
+#         gripper_finger_primary_number: int,
+#         gripper_finger_secondary_number: int,
+#         stamp
+#     ) -> None:
+#         """Generate gripper coordinate system
+#         @author DY
+#         @date 2025-9-11
+#         @TODO pinch motion
+        
+        
+#         1) Pre-process
+#         A transformation matrix is computed from the {gripper_base_frame} to the position of each {hand coordinate system mcp},
+#         applying translation only and ignoring the rotation component. This transformation is then published via TF.
+#         In other words, it is defined in advance to enable the subsequent creation of {gripper_finger{i}_mcp} in section 2) and the transformation from {gripper_finger{i}_mcp} to {gripper_finger{i}_tip} in section 3).
+        
+#         2) Define the frame {gripper_finger_mcp} from frame {gripper_finger_base}
+#             - A new frame {gripper_finger{i}_mcp} is generated by applying only the translational component along the x-axis from the transformation between {gripper_finger_base} and {hand_{label}_{index or thumb}_mcp_world_abs}.
+#                 {gripper_finger{i}_base} is defined `@function _publish_static_frames()`
+#             * TBD: software limit have to be generated. -> linear guide limit
+            
+#         3) Convert hand finger scale to gripper finger scale
+#         The scale between the hand coordinate system (with the suffix 'world_abs') of the desired finger (e.g., index finger) and the predefined gripper finger length is computed.
+#         The finger length of the desired finger is obtained by summing the norms of the translational components from the transformation matrices of mcp→pip, pip→dip, and dip→tip.
+#         The actual hardware design parameter "finger_length"(refer to config/gripper_config.yaml) is then used to adjust the scale factors for the x, y, and z components.
+#         After obtaining scale value, make new transform matrices {gripper_finger{i}_mcp}->{gripper_finger{i}_tip}.
+#         This matrices are calculated like code below
+#             T_gripper_finger{i}_mcp_to_tip = T_{finger(index)}_mcp_to_tip
+#             T_gripper_finger{i}_mcp_to_tip[:3, 3] = T_gripper_finger{i}_mcp_to_tip[:3, 3] * scale
+            
+#         In our setup, finger1 and finger2 cannot move independently.
+#         Therefore, if the scale mapping is performed using finger1,
+#         the {gripper_finger2_tip} must be represented (re-anchored) with respect to {gripper_finger1_mcp} before applying the scaling.
+        
+#         ** In each step of '1)', '2)'and '3)', tf must be published. **
+#         """
+        
+#         """
+#         한 손(두 개의 결합된 finger)을 처리한다.
+#         - primary finger로 스케일 계산
+#         - secondary tip은 스케일 적용 전, primary MCP에 대해 re-anchoring
+#         """
+#         if not (0 <= index_primary < len(self.fingers_cfg)) or not (0 <= index_secondary < len(self.fingers_cfg)):
+#             self.get_logger().warning(
+#                 f"_retarget_from_hand_to_gripper: bad indices (primary={index_primary}, secondary={index_secondary}, len={len(self.fingers_cfg)})"
+#             )
+#             return
+
+#         target_finger_primary = self.fingers_cfg[index_primary]["target_finger"]      # {label, finger}
+#         target_finger_secondary = self.fingers_cfg[index_secondary]["target_finger"]  # {label, finger}
+
+#         # --- hand frame names ---
+#         frame_name_primary_mcp = self._hand_frame_name(target_finger_primary["label"], target_finger_primary["finger"], "mcp", self.target_suffix)
+#         frame_name_primary_pip = self._hand_frame_name(target_finger_primary["label"], target_finger_primary["finger"], "pip", self.target_suffix)
+#         frame_name_primary_dip = self._hand_frame_name(target_finger_primary["label"], target_finger_primary["finger"], "dip", self.target_suffix)
+#         frame_name_primary_tip = self._hand_frame_name(target_finger_primary["label"], target_finger_primary["finger"], "tip", self.target_suffix)
+
+#         frame_name_secondary_mcp = self._hand_frame_name(target_finger_secondary["label"], target_finger_secondary["finger"], "mcp", self.target_suffix)
+#         frame_name_secondary_tip = self._hand_frame_name(target_finger_secondary["label"], target_finger_secondary["finger"], "tip", self.target_suffix)
+
+#         # --- 1) align MCPs to gripper_base (translation-only) ---
+#         T_gripper_base_to_primary_mcp_world_abs = self._lookup_transform_matrix(frame_name_primary_mcp, self.gripper_base_frame_name)
+#         T_gripper_base_to_secondary_mcp_world_abs = self._lookup_transform_matrix(frame_name_secondary_mcp, self.gripper_base_frame_name)
+
+#         frame_name_primary_mcp_aligned = self._hand_frame_name(target_finger_primary["label"], target_finger_primary["finger"], "mcp", suffix="gripper_aligned")
+#         frame_name_secondary_mcp_aligned = self._hand_frame_name(target_finger_secondary["label"], target_finger_secondary["finger"], "mcp", suffix="gripper_aligned")
+
+#         if T_gripper_base_to_primary_mcp_world_abs is not None:
+#             trans = T_gripper_base_to_primary_mcp_world_abs[:3, 3]
+#             self._send_tf_from_matrix(self.gripper_base_frame_name, frame_name_primary_mcp_aligned, make_homogeneous(np.eye(3), trans), stamp=stamp)
+#         # else:
+#         #     self.get_logger().warning("Primary MCP alignment skipped: T_gripper_base_to_primary_mcp_world_abs is None.")
+
+#         if T_gripper_base_to_secondary_mcp_world_abs is not None:
+#             trans = T_gripper_base_to_secondary_mcp_world_abs[:3, 3]
+#             self._send_tf_from_matrix(self.gripper_base_frame_name, frame_name_secondary_mcp_aligned, make_homogeneous(np.eye(3), trans), stamp=stamp)
+#         # else:
+#         #     self.get_logger().warning("Secondary MCP alignment skipped: T_gripper_base_to_secondary_mcp_world_abs is None.")
+
+#         # --- 2) define gripper_finger{N}_mcp from gripper_finger{N}_base (x-translation only) ---
+#         gripper_finger_primary_base = f"gripper_finger{gripper_finger_primary_number}_base"
+#         gripper_finger_secondary_base = f"gripper_finger{gripper_finger_secondary_number}_base"
+#         gripper_finger_primary_mcp  = f"gripper_finger{gripper_finger_primary_number}_mcp"
+#         gripper_finger_secondary_mcp = f"gripper_finger{gripper_finger_secondary_number}_mcp"
+#         gripper_finger_primary_tip  = f"gripper_finger{gripper_finger_primary_number}_tip"
+#         gripper_finger_secondary_tip = f"gripper_finger{gripper_finger_secondary_number}_tip"
+
+#         T_base_to_primary_mcp_aligned = self._lookup_transform_matrix(frame_name_primary_mcp_aligned, gripper_finger_primary_base)
+#         if T_base_to_primary_mcp_aligned is not None:
+#             tx = float(T_base_to_primary_mcp_aligned[0, 3])
+#             self._send_tf_from_matrix(gripper_finger_primary_base, gripper_finger_primary_mcp, make_homogeneous(np.eye(3), np.array([tx, 0.0, 0.0], dtype=float)), stamp=stamp)
+
+#         T_base_to_secondary_mcp_aligned = self._lookup_transform_matrix(frame_name_secondary_mcp_aligned, gripper_finger_secondary_base)
+#         if T_base_to_secondary_mcp_aligned is not None:
+#             tx = float(T_base_to_secondary_mcp_aligned[0, 3])
+#             self._send_tf_from_matrix(gripper_finger_secondary_base, gripper_finger_secondary_mcp, make_homogeneous(np.eye(3), np.array([tx, 0.0, 0.0], dtype=float)), stamp=stamp)
+
+#         # --- 3) scale from primary chain length ---
+#         T_primary_mcp_to_pip = self._lookup_transform_matrix(frame_name_primary_mcp, frame_name_primary_pip)
+#         T_primary_pip_to_dip = self._lookup_transform_matrix(frame_name_primary_pip, frame_name_primary_dip)
+#         T_primary_dip_to_tip = self._lookup_transform_matrix(frame_name_primary_dip, frame_name_primary_tip)
+
+#         finger_length_design = float(self.fingers_cfg[index_primary]["finger_length"])
+#         if T_primary_mcp_to_pip is not None and T_primary_pip_to_dip is not None and T_primary_dip_to_tip is not None:
+#             finger_length_observed = float(
+#                 np.linalg.norm(T_primary_mcp_to_pip[:3, 3]) +
+#                 np.linalg.norm(T_primary_pip_to_dip[:3, 3]) +
+#                 np.linalg.norm(T_primary_dip_to_tip[:3, 3])
+#             )
+#         else:
+#             # self.get_logger().warning("Scale: missing transforms; using design finger_length as fallback.")
+#             finger_length_observed = finger_length_design
+
+#         ##############################################################################################################################
+#         ### DY ###
+#         # Hand landmark의 스케일 조절 중 링크 길이가 들쑥날쑥하는데, 이거 매핑하는 꼼수임.
+#         # 정규화된 손 (world_abs) 프레임 기준으로 검지 관절들의 길이는 0.04~0.06 정도로 측정됨
+#         # y=ymin​+(ymax​−ymin​)⋅(x - xmin)/(xma​x−xmin​​)
+#         # 아래 예시는 0.4 ~ 0.6 input, 1.0~0.5 output
+#         def linear_map(x, in_min=0.04, in_max=0.06, out_min=0.8, out_max=0.5):
+#             x = min(max(x, 0.04), 0.06)
+#             return out_min + (x - in_min) * (out_max - out_min) / (in_max - in_min)
+#         scale_stabilizer = linear_map(finger_length_observed)
+#         ##############################################################################################################################
+        
+#         scale_length = (scale_stabilizer)* finger_length_design / max(1e-9, finger_length_observed)
+#         # self.get_logger().info(
+#         #     f"[{target_finger_primary['label']}/{target_finger_primary['finger']}] "
+#         #     f"scale={scale_length} (design={finger_length_design}, observed={finger_length_observed}, clip={scale_stabilizer})"
+#         # )
+
+#         # --- 4) primary TIP (aligned MCP -> TIP, scaled) ---
+#         T_primary_mcp_aligned_to_tip = self._lookup_transform_matrix(frame_name_primary_tip, frame_name_primary_mcp_aligned)
+#         if T_primary_mcp_aligned_to_tip is not None:
+#             # translation values are multipled as much as scale.
+#             self._send_tf_from_matrix(gripper_finger_primary_mcp, gripper_finger_primary_tip, scale_translation(T_primary_mcp_aligned_to_tip, scale_length), stamp=stamp)
+
+#             # check length
+#             T_scale = scale_translation(T_primary_mcp_aligned_to_tip, scale_length)
+#             trans = T_scale[:3, 3]
+#             l = np.linalg.norm(trans)
+#             # self.get_logger().info(f"scaled mcp->tip length: {l} m")
+        
+#         # --- 5) secondary TIP (re-anchored to primary MCP, then scaled) ---
+#         T_intermediate_from_primary_mcp_to_secondary_tip_scaled = np.eye(4)
+#         T_primary_mcp_aligned_to_secondary_tip = self._lookup_transform_matrix(frame_name_secondary_tip, frame_name_primary_mcp_aligned)
+#         if T_primary_mcp_aligned_to_secondary_tip is not None:
+#             T_intermediate_from_primary_mcp_to_secondary_tip_scaled = scale_translation(T_primary_mcp_aligned_to_secondary_tip, scale_length)
+            
+#             ## z방향이 좀 엄지가 항상 낮게 추정되는 경향이 있어서 임의로 스칼라 값을 더해줌;
+#             # world_abs 기준 한 1cm 엄지가 낮게 나오는듯?
+#             T_intermediate_from_primary_mcp_to_secondary_tip_scaled[2,3] += scale_length*0.012
+
+#         T_primary_mcp_to_secondary_mcp = self._lookup_transform_matrix(gripper_finger_secondary_mcp, gripper_finger_primary_mcp)
+#         if T_primary_mcp_to_secondary_mcp is not None:
+#             T_secondary_mcp_aligned_to_secondary_tip = make_inv_homogeneous(T_primary_mcp_to_secondary_mcp) @ T_intermediate_from_primary_mcp_to_secondary_tip_scaled
+#             self._send_tf_from_matrix(gripper_finger_secondary_mcp, gripper_finger_secondary_tip, T_secondary_mcp_aligned_to_secondary_tip, stamp=stamp)
+
     
     def get_target_joints_from_ik(self, finger_index: int, parent_frame: str, tip_frame: str) -> Optional[Tuple[List[str], List[float]]]:
         """
@@ -756,37 +1042,41 @@ class RetargetNode(Node):
         self._publish_static_frames()
         t1 = time.perf_counter()
         # 왼손: finger1 / finger2
-        self._process_hand(index_primary=0, index_secondary=1, gripper_finger_primary_number=1, gripper_finger_secondary_number=2, stamp=stamp)
+        self._retarget_finger_pose_from_hand_to_gripper(index=0, gripper_finger_number=1, stamp=stamp)
         t2 = time.perf_counter()
         # 오른손: finger3 / finger4
-        self._process_hand(index_primary=2, index_secondary=3, gripper_finger_primary_number=3, gripper_finger_secondary_number=4, stamp=stamp)
+        self._retarget_finger_pose_from_hand_to_gripper(index=1, gripper_finger_number=2, stamp=stamp)
+        self._retarget_finger_pose_from_hand_to_gripper(index=2, gripper_finger_number=3, stamp=stamp)
+        self._retarget_finger_pose_from_hand_to_gripper(index=3, gripper_finger_number=4, stamp=stamp)
 
         # IK
-        solutions = []
-        s1 = self.get_target_joints_from_ik(0, "gripper_finger1_mcp", "gripper_finger1_tip")
-        if s1: solutions.append(s1)
-        else:
-            return
-        s2 = self.get_target_joints_from_ik(1, "gripper_finger2_mcp", "gripper_finger2_tip")
-        if s2: solutions.append(s2)
-        else:
-            return
-        s3 = self.get_target_joints_from_ik(2, "gripper_finger3_mcp", "gripper_finger3_tip")
-        if s3: solutions.append(s3)
-        else:
-            return
-        s4 = self.get_target_joints_from_ik(3, "gripper_finger4_mcp", "gripper_finger4_tip")
-        if s4: solutions.append(s4)
-        else:
-            return
+        # solutions = []
+        # s1 = self.get_target_joints_from_ik(0, "gripper_finger1_mcp", "gripper_finger1_tip")
+        # if s1: solutions.append(s1)
+        # else:
+        #     return
+        # s2 = self.get_target_joints_from_ik(1, "gripper_finger2_mcp", "gripper_finger2_tip")
+        # if s2: solutions.append(s2)
+        # else:
+        #     return
+        # s3 = self.get_target_joints_from_ik(2, "gripper_finger3_mcp", "gripper_finger3_tip")
+        # if s3: solutions.append(s3)
+        # else:
+        #     return
+        # s4 = self.get_target_joints_from_ik(3, "gripper_finger4_mcp", "gripper_finger4_tip")
+        # if s4: solutions.append(s4)
+        # else:
+        #     return
 
-        if solutions:
-            self.publish_target_joint_and_trajectory_step_all_fingers(solutions, duration_s=0.01)  # 주기에 맞춰 0.05~0.3s 조절
-            # self.get_logger().info(f'solutions: {solutions}')
-            # self.get_logger().info(f'time: t0-t1: {t1-t0} / t1-t2: {t2-t1} / t2-t3: {t3-t2}')
+        # if solutions:
+        #     self.publish_target_joint_and_trajectory_step_all_fingers(solutions, duration_s=0.01)  # 주기에 맞춰 0.05~0.3s 조절
+        #     # self.get_logger().info(f'solutions: {solutions}')
+        #     # self.get_logger().info(f'time: t0-t1: {t1-t0} / t1-t2: {t2-t1} / t2-t3: {t3-t2}')
             
         t3 = time.perf_counter()
         
+        # self.get_logger().info("on_timer() tick")
+        # self.get_logger().info(f'time: t0-t1: {t1-t0} / t1-t2: {t2-t1} / t2-t3: {t3-t2}')
         
         
     # ---------- 경고 스로틀 ----------

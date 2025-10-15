@@ -21,8 +21,7 @@
     <link name="${name}_base"/>
   </xacro:macro>
 
-  <!-- 3-DoF finger with box links (j1: z-rot, j2: y-rot, j3: y-rot) -->
-  <xacro:macro name="finger_3dof_box" params="name base_link l1 l2 l3 thickness:=0.002 thickness2:=0.004">
+  <xacro:macro name="midas_3dof_fingers_gripper" params="name base_link l1 l2 l3 thickness:=0.002 thickness2:=0.004">
 
     <link name="${name}_mcp">
       <visual>
@@ -67,7 +66,7 @@
       <child  link="${name}_mcp"/>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="0.0" upper="0.10" effort="10.0" velocity="0.2"/>
+      <limit lower="0.0" upper="0.10" effort="10.0" velocity="5.0"/>
     </joint>
     <!-- j1 -->
     <joint name="${name}_j1" type="revolute">
@@ -107,18 +106,18 @@
   <!-- === Instances (gripper_config.yaml 값 반영) === -->
   <!-- finger1 -->
   <xacro:finger_base name="finger1" base_x="-0.07" base_y="-0.030"/>
-  <xacro:finger_3dof_box name="finger1" base_link="gripper_finger1_base" l1="0.0" l2="0.045" l3="0.045"/>
+  <xacro:midas_3dof_fingers_gripper name="finger1" base_link="gripper_finger1_base" l1="0.0" l2="0.045" l3="0.045"/>
 
   <!-- finger2 -->
   <xacro:finger_base name="finger2" base_x="-0.07" base_y="0.030"/>
-  <xacro:finger_3dof_box name="finger2" base_link="gripper_finger2_base" l1="0.0" l2="0.045" l3="0.045"/>
+  <xacro:midas_3dof_fingers_gripper name="finger2" base_link="gripper_finger2_base" l1="0.0" l2="0.045" l3="0.045"/>
 
   <!-- finger3 -->
   <xacro:finger_base name="finger3" base_x="0.02" base_y="-0.030"/>
-  <xacro:finger_3dof_box name="finger3" base_link="gripper_finger3_base" l1="0.0" l2="0.045" l3="0.045"/>
+  <xacro:midas_3dof_fingers_gripper name="finger3" base_link="gripper_finger3_base" l1="0.0" l2="0.045" l3="0.045"/>
 
   <!-- finger4 -->
   <xacro:finger_base name="finger4" base_x="0.02" base_y="0.030"/>
-  <xacro:finger_3dof_box name="finger4" base_link="gripper_finger4_base" l1="0.0" l2="0.045" l3="0.045"/>
+  <xacro:midas_3dof_fingers_gripper name="finger4" base_link="gripper_finger4_base" l1="0.0" l2="0.045" l3="0.045"/>
 
 </robot>

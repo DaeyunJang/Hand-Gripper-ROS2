@@ -1,0 +1,211 @@
+gripper:
+  hardware_information:
+    - num_of_motors: 28
+  scale: 0.24
+  human_stretch_finger_length: 0.06    # index finger mcp -> tip (mm)
+  # scale_xyz: [0.12, 0.12, 0.12]
+  target_suffix: world_abs
+  fingers:
+    - name: finger1
+      base_offset_x: -0.075           # meter
+      base_offset_y: -0.0495          # meter
+      target_finger: { label: right,  finger: thumb }
+      finger_length: 0.192            # stretched gripper finger length, meter
+      dh:
+        convention: standard          # standard or modified
+        joints:
+          - name: joint0_linear       # prismatic
+            a: 0.0                    # m
+            alpha: 0.0                # rad (= +pi/2)
+            d: 0.0                    # m (필요시 베이스 높이 넣기)
+            offset: 0.0               # rad
+            qlim_deg: [0.0, 0.15]
+          - name: joint1              # Rz (roll), z-rotation
+            a: 0.0                    # m
+            alpha: 1.57079632679      # rad (= +pi/2)
+            d: 0.0                    # m (필요시 베이스 높이 넣기)
+            offset: 0.0               # rad
+            qlim_deg: [-180.0, 180.0]
+          - name: joint2              # Ry (pan) 효과 (DH z축이 y축 역할 하도록 설계)
+            a: 0.032                  # m  (예시) j2 + j3 ≈ finger_length
+            alpha: -1.57079632679     # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-90.0, 90.0]
+          - name: joint3              # Ry (pan)
+            a: 0.038                  # m
+            alpha: 1.57079632679      # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-45.0, 45.0]
+          - name: joint4              # Ry (pan)
+            a: 0.044                  # m
+            alpha: 0.0                # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-90.0, 90.0]
+          - name: joint5              # Ry (pan)
+            a: 0.038                  # m
+            alpha: 0.0                # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-90.0, 90.0]
+          - name: joint6              # Ry (pan)
+            a: 0.040                  # m
+            alpha: 0.0                # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-90.0, 90.0]
+
+    - name: finger2
+      base_offset_x: -0.075           # meter
+      base_offset_y: -0.0165          # meter
+      target_finger: { label: right,  finger: index }
+      finger_length: 0.192            # meter
+      dh:
+        convention: standard          # standard or modified
+        joints:
+          - name: joint0_linear       # prismatic
+            a: 0.0                    # m
+            alpha: 0.0                # rad (= +pi/2)
+            d: 0.0                    # m (필요시 베이스 높이 넣기)
+            offset: 0.0               # rad
+            qlim_deg: [0.0, 0.15]
+          - name: joint1              # Rz (roll), z-rotation
+            a: 0.0                    # m
+            alpha: 1.57079632679      # rad (= +pi/2)
+            d: 0.0                    # m (필요시 베이스 높이 넣기)
+            offset: 0.0               # rad
+            qlim_deg: [-180.0, 180.0]
+          - name: joint2              # Ry (pan) 효과 (DH z축이 y축 역할 하도록 설계)
+            a: 0.032                  # m  (예시) j2 + j3 ≈ finger_length
+            alpha: -1.57079632679     # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-90.0, 90.0]
+          - name: joint3              # Ry (pan)
+            a: 0.038                  # m
+            alpha: 1.57079632679      # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-45.0, 45.0]
+          - name: joint4              # Ry (pan)
+            a: 0.044                  # m
+            alpha: 0.0                # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-90.0, 90.0]
+          - name: joint5              # Ry (pan)
+            a: 0.038                  # m
+            alpha: 0.0                # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-90.0, 90.0]
+          - name: joint6              # Ry (pan)
+            a: 0.040                  # m
+            alpha: 0.0                # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-90.0, 90.0]
+
+    - name: finger3
+      base_offset_x: -0.075           # meter
+      base_offset_y: 0.0165           # meter
+      target_finger: { label: right,  finger: middle }
+      finger_length: 0.192            # meter
+      dh:
+        convention: standard          # standard or modified
+        joints:
+          - name: joint0_linear       # prismatic
+            a: 0.0                    # m
+            alpha: 0.0                # rad (= +pi/2)
+            d: 0.0                    # m (필요시 베이스 높이 넣기)
+            offset: 0.0               # rad
+            qlim_deg: [0.0, 0.15]
+          - name: joint1              # Rz (roll), z-rotation
+            a: 0.0                    # m
+            alpha: 1.57079632679      # rad (= +pi/2)
+            d: 0.0                    # m (필요시 베이스 높이 넣기)
+            offset: 0.0               # rad
+            qlim_deg: [-180.0, 180.0]
+          - name: joint2              # Ry (pan) 효과 (DH z축이 y축 역할 하도록 설계)
+            a: 0.032                  # m  (예시) j2 + j3 ≈ finger_length
+            alpha: -1.57079632679     # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-90.0, 90.0]
+          - name: joint3              # Ry (pan)
+            a: 0.038                  # m
+            alpha: 1.57079632679      # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-45.0, 45.0]
+          - name: joint4              # Ry (pan)
+            a: 0.044                  # m
+            alpha: 0.0                # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-90.0, 90.0]
+          - name: joint5              # Ry (pan)
+            a: 0.038                  # m
+            alpha: 0.0                # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-90.0, 90.0]
+          - name: joint6              # Ry (pan)
+            a: 0.040                  # m
+            alpha: 0.0                # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-90.0, 90.0]
+
+    - name: finger4
+      base_offset_x: -0.075           # meter
+      base_offset_y: 0.0495          # meter
+      target_finger: { label: right,  finger: ring}
+      finger_length: 0.192            # meter
+      dh:
+        convention: standard          # standard or modified
+        joints:
+          - name: joint0_linear       # prismatic
+            a: 0.0                    # m
+            alpha: 0.0                # rad (= +pi/2)
+            d: 0.0                    # m (필요시 베이스 높이 넣기)
+            offset: 0.0               # rad
+            qlim_deg: [0.0, 0.15]
+          - name: joint1              # Rz (roll), z-rotation
+            a: 0.0                    # m
+            alpha: 1.57079632679      # rad (= +pi/2)
+            d: 0.0                    # m (필요시 베이스 높이 넣기)
+            offset: 0.0               # rad
+            qlim_deg: [-180.0, 180.0]
+          - name: joint2              # Ry (pan) 효과 (DH z축이 y축 역할 하도록 설계)
+            a: 0.032                  # m  (예시) j2 + j3 ≈ finger_length
+            alpha: -1.57079632679     # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-90.0, 90.0]
+          - name: joint3              # Ry (pan)
+            a: 0.038                  # m
+            alpha: 1.57079632679      # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-45.0, 45.0]
+          - name: joint4              # Ry (pan)
+            a: 0.044                  # m
+            alpha: 0.0                # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-90.0, 90.0]
+          - name: joint5              # Ry (pan)
+            a: 0.038                  # m
+            alpha: 0.0                # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-90.0, 90.0]
+          - name: joint6              # Ry (pan)
+            a: 0.040                  # m
+            alpha: 0.0                # rad
+            d: 0.0                    # m
+            offset: 0.0               # rad
+            qlim_deg: [-90.0, 90.0]

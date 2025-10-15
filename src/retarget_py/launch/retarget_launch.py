@@ -18,7 +18,7 @@ def generate_launch_description():
     camera_fps      = LaunchConfiguration('camera_fps')
 
     pkg = get_package_share_directory('retarget_py')
-    xacro_path = os.path.join(pkg, 'urdf', 'three_dof_manipulator.urdf.xacro')
+    xacro_path = os.path.join(pkg, 'urdf', 'hand_gripper.urdf.xacro')
     robot_description = xacro.process_file(xacro_path).toxml()
     
     # ---- handpose_pkg (handpose_ros) 런치 포함 ----
@@ -57,6 +57,7 @@ def generate_launch_description():
         name='retarget_node',
         output='screen',
         parameters=[{
+            "gripper_name": "hand_gripper",
             "source_root": "camera_color_optical_frame",
             # "scale": 0.48,
             "warning_log_flag": False,
@@ -88,10 +89,10 @@ def generate_launch_description():
         }]
     )
     
-    midas_joint_state_node = Node(
+    joint_state_node = Node(
         package='retarget_py',
-        executable='joint_state_midas_publisher',
-        name='joint_state_midas_publisher',
+        executable='joint_state_publisher',
+        name='joint_state_publisher',
         output='screen',
         parameters=[{
             'cmd_topic': '/hand_gripper/joint_states_cmd',
@@ -151,6 +152,7 @@ def generate_launch_description():
         rviz_node,
         rviz_sideview_node,
         joint_state_preview_node,
-        midas_joint_state_node,
+        joint_state_node,
+        # midas_joint_state_node,
         robot_state_publisher,
     ])
