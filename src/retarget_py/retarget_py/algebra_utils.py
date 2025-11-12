@@ -199,12 +199,32 @@ def scale_translation(T: np.ndarray, scale: float | Tuple[float, float, float]) 
     M[:3, 3] = M[:3, 3] * scale
     return M
 
-def rot_y_180_mat() -> np.ndarray:
+def rot_axis_mat(axis: str, deg: float) -> np.ndarray:
     """
-    Generate a homogeneous transform representing a 180° rotation around Y-axis.
+    Generate a 4x4 homogeneous transform representing a rotation about a principal axis.
+
+    Args:
+        axis (str): 'x', 'y', or 'z' (case-insensitive).
+        deg (float): rotation angle in degrees (positive = right-hand rule).
 
     Returns:
         np.ndarray: 4x4 homogeneous transform (rotation + zero translation)
     """
-    Ry = R.from_euler('y', 180.0, degrees=True).as_matrix()
-    return make_homogeneous(Ry, np.zeros(3))
+    a = str(axis).lower()
+    if a not in ('x', 'y', 'z'):
+        raise ValueError("axis must be one of 'x', 'y', or 'z'")
+
+    Rm = R.from_euler(a, float(deg), degrees=True).as_matrix()
+    return make_homogeneous(Rm, np.zeros(3))
+
+
+# 기존 함수 리팩토링(호출 방식은 그대로 유지 가능)
+def rot_y_180_mat() -> np.ndarray:
+    """180° rotation around Y-axis (keeps compatibility with existing code)."""
+    return rot_axis_mat('y', 180.0)
+
+
+# 편의 함수: X축 -90° 회전
+def rot_x_minus90_mat() -> np.ndarray:
+    """-90° rotation around X-axis (convenience wrapper)."""
+    return rot_axis_mat('x', -90.0)
