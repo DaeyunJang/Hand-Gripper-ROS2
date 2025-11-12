@@ -62,12 +62,15 @@ class RetargetNode(Node):
         # (legacy) 기존 스케일 파라미터
         self.declare_parameter("scale", 1.0)
         self.declare_parameter("scale_xyz", [])
+        self.declare_parameter("human_stretch_finger_length", 0.06)
         
         # -------- Load Config --------
         cfg = self._load_gripper_config(self.config_path)
         # (legacy) yaml/param 스케일 로딩
         scale_param = float(self.get_parameter("scale").value or 1.0)
         scale_xyz_param = self.get_parameter("scale_xyz").value or []
+        self.human_stretch_finger_length = float(self.get_parameter("human_stretch_finger_length").value or 0.06)
+
         self.scale_xyz: Optional[np.ndarray] = None
         self.scale_scalar: float = 1.0
         if scale_param > 0.0:
@@ -86,13 +89,16 @@ class RetargetNode(Node):
         else:
             self._pick_yaml_scale(cfg)
             src_scale = "yaml"
+
+        self.get_logger().info(f"Scale param: {self.scale_scalar}")
+
         self.fingers_cfg = cfg.get("fingers") or []  # [{name, base_offset_x, base_offset_y, target_finger:{label,finger}}]
         self.finger_joint_names_map = self._make_finger_joint_names_map()
         # 전체 조인트 이름(컨트롤러 yaml의 joints 순서와 반드시 일치해야 함)
         self.all_joint_names: List[str] = []
         for fdef in self.fingers_cfg:
             self.all_joint_names.extend(self.finger_joint_names_map.get(fdef["name"], []))
-
+        
         ################################################################################################################################
         
         # -------- Parameters --------
@@ -273,6 +279,77 @@ class RetargetNode(Node):
             self.get_logger().warning(f"Failed to load gripper config '{cfg_path}': {ex}. Using defaults.")
             return {"scale": 0.1, "target_suffix": "world_abs", "fingers": []}
         
+    def _get_finger_cfg_value(
+        self,
+        finger: Union[int, str, Dict[str, str]],
+        key: str,
+        default: Any = None,
+        cast: Optional[Callable[[Any], Any]] = None
+    ) -> Any:
+        """
+        ** Created by GPT **
+        범용 조회기: self.fingers_cfg에서 finger(인덱스/이름/'target_finger' dict)로 항목을 찾아
+        key (예: 'base_offset_x' 또는 'target_finger.label' 같은 nested key)를 반환.
+        - finger: int (0-based index) or str (e.g. 'finger1' or 'Finger1') or dict like {'label':'left','finger':'index'}
+        - key: dot(.)으로 중첩 조회 가능, 예: 'target_finger.label'
+        - default: 키가 없을 때 반환값
+        - cast: 반환값에 적용할 함수(예: float, int, str 등)
+        """
+        # 1) 찾기: fdef (dict) 결정
+        fdef = None
+        # by index (int)
+        if isinstance(finger, int):
+            if 0 <= finger < len(self.fingers_cfg):
+                fdef = self.fingers_cfg[finger]
+        # by name (str) -> match against fdef["name"]
+        elif isinstance(finger, str):
+            key_name = finger.lower()
+            for fd in self.fingers_cfg:
+                if str(fd.get("name", "")).lower() == key_name:
+                    fdef = fd
+                    break
+        # by mapping dict {'label':..., 'finger':...}
+        elif isinstance(finger, dict):
+            tlabel = str(finger.get("label", "")).lower()
+            tfinger = str(finger.get("finger", "")).lower()
+            for fd in self.fingers_cfg:
+                tf = fd.get("target_finger", {}) or {}
+                if str(tf.get("label", "")).lower() == tlabel and str(tf.get("finger", "")).lower() == tfinger:
+                    fdef = fd
+                    break
+
+        # if not found -> default
+        if fdef is None:
+            return default if cast is None else (cast(default) if default is not None else default)
+
+        # 2) nested key lookup
+        cur: Any = fdef
+        for part in key.split("."):
+            if isinstance(cur, dict) and part in cur:
+                cur = cur[part]
+            else:
+                # try case-insensitive match for dict keys
+                if isinstance(cur, dict):
+                    matched = None
+                    lower_part = part.lower()
+                    for k in cur.keys():
+                        if str(k).lower() == lower_part:
+                            matched = cur[k]
+                            break
+                    if matched is not None:
+                        cur = matched
+                        continue
+                # not found
+                return default if cast is None else (cast(default) if default is not None else default)
+
+        # 3) cast if requested
+        if cast is not None:
+            try:
+                return cast(cur)
+            except Exception:
+                return default if cast is None else (cast(default) if default is not None else default)
+        return cur
+    
     def _make_finger_joint_names_map(self) -> Dict[str, List[str]]:
         """
         예: {"finger1": ["finger1_j0_linear", "finger1_j1","finger1_j2","finger1_j3"], ...}
@@ -330,6 +407,18 @@ class RetargetNode(Node):
     # ---------- 프레임 이름/탐색 ----------
 
     def _hand_frame_name(self, label: str, finger: str, joint: str, suffix: str) -> str:
+        """Make string of hand frame name on TF
+        e.g. 'hand_left_index_mcp_world_abs'
+
+        Args:
+            label (str): 'left' or 'right'
+            finger (str): 'thumb', 'index', 'middle', 'pinky', 'little'
+            joint (str): 'mcp', 'dip', 'pip', 'tip'
+            suffix (str): 'world_abs'(Default), 'canonical'
+
+        Returns:
+            str: hand frame name on TF
+        """
         return f"hand_{label}_{finger}_{joint}_{suffix}"
 
     def _scaled_name(self, frame: str) -> str:
@@ -590,7 +679,7 @@ class RetargetNode(Node):
         # Hand landmark의 스케일 조절 중 링크 길이가 들쑥날쑥하는데, 이거 매핑하는 꼼수임.
         # 정규화된 손 (world_abs) 프레임 기준으로 검지 관절들의 길이는 0.04~0.06 정도로 측정됨
         # y=ymin​+(ymax​−ymin​)⋅(x - xmin)/(xma​x−xmin​​)
-        # 아래 예시는 0.4 ~ 0.6 input, 1.0~0.5 output
+        # 아래 예시는 0.04 ~ 0.06 input, 1.0~0.5 output
         def linear_map(x, in_min=0.04, in_max=0.06, out_min=0.8, out_max=0.5):
             x = min(max(x, 0.04), 0.06)
             return out_min + (x - in_min) * (out_max - out_min) / (in_max - in_min)
@@ -600,19 +689,22 @@ class RetargetNode(Node):
         scale_length = (scale_stabilizer)* finger_length_design / max(1e-9, finger_length_observed)
         # self.get_logger().info(
         #     f"[{target_finger_primary['label']}/{target_finger_primary['finger']}] "
-        #     f"scale={scale_length} (design={finger_length_design}, observed={finger_length_observed}, clip={scale_stabilizer})"
+        #     f"scale={scale_length} (design={finger_length_design}, observed={finger_length_observed}, scale_stabilizer={scale_stabilizer})"
         # )
 
         # --- 4) primary TIP (aligned MCP -> TIP, scaled) ---
         T_primary_mcp_aligned_to_tip = self._lookup_transform_matrix(frame_name_primary_tip, frame_name_primary_mcp_aligned)
         if T_primary_mcp_aligned_to_tip is not None:
+            # DY: scale 및 z 방향 오프셋 추가 (예: 0.01m)
+            T_scale = scale_translation(T_primary_mcp_aligned_to_tip, scale_length)
+            # T_scale[2, 3] += 0.025  # 원하는 오프셋 값으로 조정
             # translation values are multipled as much as scale.
-            self._send_tf_from_matrix(gripper_finger_primary_mcp, gripper_finger_primary_tip, scale_translation(T_primary_mcp_aligned_to_tip, scale_length), stamp=stamp)
+            self._send_tf_from_matrix(gripper_finger_primary_mcp, gripper_finger_primary_tip, T_scale, stamp=stamp)
 
             # check length
-            T_scale = scale_translation(T_primary_mcp_aligned_to_tip, scale_length)
-            trans = T_scale[:3, 3]
-            l = np.linalg.norm(trans)
+            # T_scale = scale_translation(T_primary_mcp_aligned_to_tip, scale_length)
+            # trans = T_scale[:3, 3]
+            # l = np.linalg.norm(trans)
             # self.get_logger().info(f"scaled mcp->tip length: {l} m")
         
         # --- 5) secondary TIP (re-anchored to primary MCP, then scaled) ---
@@ -623,7 +715,8 @@ class RetargetNode(Node):
             
             ## z방향이 좀 엄지가 항상 낮게 추정되는 경향이 있어서 임의로 스칼라 값을 더해줌;
             # world_abs 기준 한 1cm 엄지가 낮게 나오는듯?
-            T_intermediate_from_primary_mcp_to_secondary_tip_scaled[2,3] += scale_length*0.012
+            T_intermediate_from_primary_mcp_to_secondary_tip_scaled[2,3] += scale_length*0.02
+            # T_intermediate_from_primary_mcp_to_secondary_tip_scaled[2,3] += 0.025
 
         T_primary_mcp_to_secondary_mcp = self._lookup_transform_matrix(gripper_finger_secondary_mcp, gripper_finger_primary_mcp)
         if T_primary_mcp_to_secondary_mcp is not None:
@@ -640,23 +733,27 @@ class RetargetNode(Node):
         if not (0 <= finger_index < len(self.fingers_cfg)):
             self.get_logger().warn(f'finger index not match: 0 ~ {len(self.fingers_cfg)}')
             return None
+        # self.get_logger().info(f'{finger_index}- 1111111111111111111111111111')
 
         T = self._lookup_transform_matrix(tip_frame, parent_frame)
         
         if T is None:
             return None
+        # self.get_logger().info(f'{finger_index}- 22222222222222222222222222222')
         
         # check the limit of link's lengthes is less than workspace
         if np.linalg.norm(T[:3, 3]) >= self.fingers_cfg[finger_index]["finger_length"]:
             # self.get_logger().warn(f'[get_target_joints_from_ik()] Transform matrix is out of workspace (link length): {np.linalg.norm(T[:3, 3])}')
             return None
+        # self.get_logger().info(f'{finger_index}- 33333333333333333333333333333')
         
         # # ✅ IK 호출
         fname = self.fingers_cfg[finger_index]["name"]
         gripper = self.grippers.get(fname)
         if gripper is None:
-            # self.get_logger().warn(f'No {fname} gripper: {gripper}')
+            self.get_logger().warn(f'No {fname} gripper: {gripper}')
             return None
+        # self.get_logger().info(f'{finger_index}- 44444444444444444444444444444')
         
         ik_joint_names = [f"{fname}_j1", f"{fname}_j2", f"{fname}_j3"]
         
@@ -665,10 +762,12 @@ class RetargetNode(Node):
             1.5708 if 'j2' in n else self._joint_state_map.get(n, 0.0)
             for n in ik_joint_names
             ], dtype=float)
+        # self.get_logger().info(f'{finger_index}- 55555555555555555555555555555555')
         
-        res = gripper.solve(T_target=T, q0=q0, position_only=True, ilimit=20, tol=1e-5)
+        res = gripper.solve(T_target=T, q0=q0, position_only=True, ilimit=20, tol=1e-3)
         if not res.success:
             return None
+        # self.get_logger().info(f'{finger_index}- 66666666666666666666666666666666666')
         
         # self.get_logger().info(f"finger_index: {finger_index}")
         # self.get_logger().info(f"parent_frame: {parent_frame}")
@@ -761,30 +860,36 @@ class RetargetNode(Node):
         t2 = time.perf_counter()
         # 오른손: finger3 / finger4
         self._retarget_pinch_motion_from_hand_to_gripper(index_primary=2, index_secondary=3, gripper_finger_primary_number=3, gripper_finger_secondary_number=4, stamp=stamp)
-
+    
         # IK
         solutions = []
         s1 = self.get_target_joints_from_ik(0, "gripper_finger1_mcp", "gripper_finger1_tip")
         if s1: solutions.append(s1)
         else:
+            self.get_logger().warning(f'There are no solutions #1...!!')
             return
         s2 = self.get_target_joints_from_ik(1, "gripper_finger2_mcp", "gripper_finger2_tip")
         if s2: solutions.append(s2)
         else:
+            self.get_logger().warning(f'There are no solutions #2...!!')
             return
         s3 = self.get_target_joints_from_ik(2, "gripper_finger3_mcp", "gripper_finger3_tip")
         if s3: solutions.append(s3)
         else:
+            self.get_logger().warning(f'There are no solutions #3...!!')
             return
         s4 = self.get_target_joints_from_ik(3, "gripper_finger4_mcp", "gripper_finger4_tip")
         if s4: solutions.append(s4)
         else:
+            self.get_logger().warning(f'There are no solutions #4...!!')
             return
 
         if solutions:
             self.publish_target_joint_and_trajectory_step_all_fingers(solutions, duration_s=0.01)  # 주기에 맞춰 0.05~0.3s 조절
             # self.get_logger().info(f'solutions: {solutions}')
             # self.get_logger().info(f'time: t0-t1: {t1-t0} / t1-t2: {t2-t1} / t2-t3: {t3-t2}')
+        else:
+            self.get_logger().warning(f'There are no solutions...!!')
             
         t3 = time.perf_counter()
         

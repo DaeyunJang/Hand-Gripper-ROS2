@@ -1,7 +1,7 @@
 gripper:
   hardware_information:
     - num_of_motors: 3
-  scale: 0.24
+  # scale: 0.24
   # scale_xyz: [0.12, 0.12, 0.12]
   target_suffix: world_abs
   fingers:
@@ -9,7 +9,7 @@ gripper:
       base_offset_x: -0.07  # meter
       base_offset_y: -0.03 # meter
       target_finger: { label: left,  finger: index }
-      finger_length: 0.089    # meter
+      finger_length: 0.08    # meter
       dh:
         convention: standard   # standard or modified
         joints:
@@ -18,7 +18,7 @@ gripper:
             alpha: 0.0   # rad (= +pi/2)
             d: 0.0             # m (필요시 베이스 높이 넣기)
             offset: 0.0        # rad
-            qlim_deg: [0.0, 0.10]
+            qlim_deg: [0.0, 0.07]
           - name: j1           # Rz (roll), z-rotation
             a: 0.0             # m
             alpha: 1.57079632679   # rad (= +pi/2)
@@ -26,13 +26,13 @@ gripper:
             offset: 0.0        # rad
             qlim_deg: [-180.0, 180.0]
           - name: j2           # Ry (pan) 효과 (DH z축이 y축 역할 하도록 설계)
-            a: 0.045            # m  (예시) j2 + j3 ≈ finger_length
+            a: 0.044            # m  (예시) j2 + j3 ≈ finger_length
             alpha: 0.0         # rad
             d: 0.0             # m
             offset: 0.0        # rad
             qlim_deg: [-90.0, 90.0]
           - name: j3           # Ry (pan)
-            a: 0.045            # m
+            a: 0.040            # m
             alpha: 0.0         # rad
             d: 0.0             # m
             offset: 0.0        # rad
@@ -51,7 +51,7 @@ gripper:
             alpha: 0.0   # rad (= +pi/2)
             d: 0.0             # m (필요시 베이스 높이 넣기)
             offset: 0.0        # rad
-            qlim_deg: [0.0, 0.10]
+            qlim_deg: [0.0, 0.07]
           - name: j1           # Rz (roll), z-rotation
             a: 0.0             # m
             alpha: 1.57079632679   # rad (= +pi/2)
@@ -59,13 +59,13 @@ gripper:
             offset: 0.0        # rad
             qlim_deg: [-180.0, 180.0]
           - name: j2           # Ry (pan) 효과 (DH z축이 y축 역할 하도록 설계)
-            a: 0.045            # m  (예시) j2 + j3 ≈ finger_length
+            a: 0.044            # m  (예시) j2 + j3 ≈ finger_length
             alpha: 0.0         # rad
             d: 0.0             # m
             offset: 0.0        # rad
             qlim_deg: [-90.0, 90.0]
           - name: j3           # Ry (pan)
-            a: 0.045            # m
+            a: 0.040            # m
             alpha: 0.0         # rad
             d: 0.0             # m
             offset: 0.0        # rad
@@ -84,7 +84,7 @@ gripper:
             alpha: 0.0   # rad (= +pi/2)
             d: 0.0             # m (필요시 베이스 높이 넣기)
             offset: 0.0        # rad
-            qlim_deg: [0.0, 0.10]
+            qlim_deg: [0.0, 0.07]
           - name: j1           # Rz (roll), z-rotation
             a: 0.0             # m
             alpha: 1.57079632679   # rad (= +pi/2)
@@ -92,13 +92,13 @@ gripper:
             offset: 0.0        # rad
             qlim_deg: [-180.0, 180.0]
           - name: j2           # Ry (pan) 효과 (DH z축이 y축 역할 하도록 설계)
-            a: 0.045            # m  (예시) j2 + j3 ≈ finger_length
+            a: 0.044            # m  (예시) j2 + j3 ≈ finger_length
             alpha: 0.0         # rad
             d: 0.0             # m
             offset: 0.0        # rad
             qlim_deg: [-90.0, 90.0]
           - name: j3           # Ry (pan)
-            a: 0.045            # m
+            a: 0.040            # m
             alpha: 0.0         # rad
             d: 0.0             # m
             offset: 0.0        # rad
@@ -117,7 +117,7 @@ gripper:
             alpha: 0.0   # rad (= +pi/2)
             d: 0.0             # m (필요시 베이스 높이 넣기)
             offset: 0.0        # rad
-            qlim_deg: [0.0, 0.10]
+            qlim_deg: [0.0, 0.07]
           - name: j1           # Rz (roll), z-rotation
             a: 0.0             # m
             alpha: 1.57079632679   # rad (= +pi/2)
@@ -125,13 +125,13 @@ gripper:
             offset: 0.0        # rad
             qlim_deg: [-180.0, 180.0]
           - name: j2           # Ry (pan) 효과 (DH z축이 y축 역할 하도록 설계)
-            a: 0.045            # m  (예시) j2 + j3 ≈ finger_length
+            a: 0.044            # m  (예시) j2 + j3 ≈ finger_length
             alpha: 0.0         # rad
             d: 0.0             # m
             offset: 0.0        # rad
             qlim_deg: [-90.0, 90.0]
           - name: j3           # Ry (pan)
-            a: 0.045            # m
+            a: 0.040            # m
             alpha: 0.0         # rad
             d: 0.0             # m
             offset: 0.0        # rad

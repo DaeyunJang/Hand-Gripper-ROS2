@@ -106,18 +106,18 @@
   <!-- === Instances (gripper_config.yaml 값 반영) === -->
   <!-- finger1 -->
   <xacro:finger_base name="finger1" base_x="-0.07" base_y="-0.030"/>
-  <xacro:midas_3dof_fingers_gripper name="finger1" base_link="gripper_finger1_base" l1="0.0" l2="0.045" l3="0.045"/>
+  <xacro:midas_3dof_fingers_gripper name="finger1" base_link="gripper_finger1_base" l1="0.0" l2="0.044" l3="0.040"/>
 
   <!-- finger2 -->
   <xacro:finger_base name="finger2" base_x="-0.07" base_y="0.030"/>
-  <xacro:midas_3dof_fingers_gripper name="finger2" base_link="gripper_finger2_base" l1="0.0" l2="0.045" l3="0.045"/>
+  <xacro:midas_3dof_fingers_gripper name="finger2" base_link="gripper_finger2_base" l1="0.0" l2="0.044" l3="0.040"/>
 
   <!-- finger3 -->
   <xacro:finger_base name="finger3" base_x="0.02" base_y="-0.030"/>
-  <xacro:midas_3dof_fingers_gripper name="finger3" base_link="gripper_finger3_base" l1="0.0" l2="0.045" l3="0.045"/>
+  <xacro:midas_3dof_fingers_gripper name="finger3" base_link="gripper_finger3_base" l1="0.0" l2="0.044" l3="0.040"/>
 
   <!-- finger4 -->
   <xacro:finger_base name="finger4" base_x="0.02" base_y="0.030"/>
-  <xacro:midas_3dof_fingers_gripper name="finger4" base_link="gripper_finger4_base" l1="0.0" l2="0.045" l3="0.045"/>
+  <xacro:midas_3dof_fingers_gripper name="finger4" base_link="gripper_finger4_base" l1="0.0" l2="0.044" l3="0.040"/>
 
 </robot>

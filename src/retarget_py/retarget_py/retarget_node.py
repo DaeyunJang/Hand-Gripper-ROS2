@@ -89,6 +89,9 @@ class RetargetNode(Node):
         else:
             self._pick_yaml_scale(cfg)
             src_scale = "yaml"
+            
+        self.get_logger().info(f"Scale param: {self.scale_scalar}")
+        
         self.fingers_cfg = cfg.get("fingers") or []  # [{name, base_offset_x, base_offset_y, target_finger:{label,finger}}]
         self.finger_joint_names_map = self._make_finger_joint_names_map()
         # 전체 조인트 이름(컨트롤러 yaml의 joints 순서와 반드시 일치해야 함)
@@ -1050,28 +1053,28 @@ class RetargetNode(Node):
         self._retarget_finger_pose_from_hand_to_gripper(index=3, gripper_finger_number=4, stamp=stamp)
 
         # IK
-        # solutions = []
-        # s1 = self.get_target_joints_from_ik(0, "gripper_finger1_mcp", "gripper_finger1_tip")
-        # if s1: solutions.append(s1)
-        # else:
-        #     return
-        # s2 = self.get_target_joints_from_ik(1, "gripper_finger2_mcp", "gripper_finger2_tip")
-        # if s2: solutions.append(s2)
-        # else:
-        #     return
-        # s3 = self.get_target_joints_from_ik(2, "gripper_finger3_mcp", "gripper_finger3_tip")
-        # if s3: solutions.append(s3)
-        # else:
-        #     return
-        # s4 = self.get_target_joints_from_ik(3, "gripper_finger4_mcp", "gripper_finger4_tip")
-        # if s4: solutions.append(s4)
-        # else:
-        #     return
+        solutions = []
+        s1 = self.get_target_joints_from_ik(0, "gripper_finger1_mcp", "gripper_finger1_tip")
+        if s1: solutions.append(s1)
+        else:
+            return
+        s2 = self.get_target_joints_from_ik(1, "gripper_finger2_mcp", "gripper_finger2_tip")
+        if s2: solutions.append(s2)
+        else:
+            return
+        s3 = self.get_target_joints_from_ik(2, "gripper_finger3_mcp", "gripper_finger3_tip")
+        if s3: solutions.append(s3)
+        else:
+            return
+        s4 = self.get_target_joints_from_ik(3, "gripper_finger4_mcp", "gripper_finger4_tip")
+        if s4: solutions.append(s4)
+        else:
+            return
 
-        # if solutions:
-        #     self.publish_target_joint_and_trajectory_step_all_fingers(solutions, duration_s=0.01)  # 주기에 맞춰 0.05~0.3s 조절
-        #     # self.get_logger().info(f'solutions: {solutions}')
-        #     # self.get_logger().info(f'time: t0-t1: {t1-t0} / t1-t2: {t2-t1} / t2-t3: {t3-t2}')
+        if solutions:
+            self.publish_target_joint_and_trajectory_step_all_fingers(solutions, duration_s=0.01)  # 주기에 맞춰 0.05~0.3s 조절
+            # self.get_logger().info(f'solutions: {solutions}')
+            # self.get_logger().info(f'time: t0-t1: {t1-t0} / t1-t2: {t2-t1} / t2-t3: {t3-t2}')
             
         t3 = time.perf_counter()
         
