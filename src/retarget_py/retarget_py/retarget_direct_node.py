@@ -203,9 +203,6 @@ class RetargetDirectNode(Node):
         if not self.fingers_cfg:
             return
 
-        js = JointState()
-        js.header.stamp = self.get_clock().now().to_msg()
-
         names: List[str] = []
         pos:   List[float] = []
 
@@ -230,6 +227,22 @@ class RetargetDirectNode(Node):
                 # 일부만 없어도 불안정 → 이 손가락은 건너뜀 (필요 시 캐시/보간 가능)
                 continue
             
+            ## j0_linear: MIDAS gripper 전용 - MCP 위치 기반 j0 선형값 산출
+            # T_center_to_mcp = self._lookup_transform_matrix("camera_color_optical_frame", f"hand_{label}_{tfing}_world_abs")
+            T_center_to_mcp = self._lookup_transform_matrix("camera_color_optical_frame", mcp)
+            if T_center_to_mcp is None:
+                self.get_logger().warning(f'[{fname}] T_center_to_mcp not found, skip j0_linear')
+                continue
+            tx = T_center_to_mcp[0,3]
+            if fname in ["finger1", "finger2"]:   # left index
+                tx = tx
+            elif fname in ["finger3", "finger4"]: # right index
+                tx = -tx
+            tx = max(0.1, min(tx, 0.2))
+            tx = (tx-0.1) / 2
+            names.append(f"{fname}_j0_linear")
+            pos.append(tx)
+            
             # j1 은 나중에 구현 (TODO)
             # j1_name = f"{fname}_j1";
             # j1_val = 0.0  # TODO
@@ -237,7 +250,7 @@ class RetargetDirectNode(Node):
             names.append(f"{fname}_j1")
             pos.append(0.0)
             
-            # yaw 추출 및 합성
+            # yaw 추출 및 합성append
             yaw_mcp_pip = self._yaw_from_matrix(T_mcp_to_pip)      # -> j2
             yaw_pip_dip = self._yaw_from_matrix(T_pip_to_dip)
             yaw_dip_tip = self._yaw_from_matrix(T_dip_to_tip)
@@ -262,6 +275,8 @@ class RetargetDirectNode(Node):
         if not names:
             return
 
+        js = JointState()
+        js.header.stamp = self.get_clock().now().to_msg()
         js.name = names
         js.position = pos
         js.velocity = []   # 비워도 OK

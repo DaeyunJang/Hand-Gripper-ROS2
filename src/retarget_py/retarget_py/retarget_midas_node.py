@@ -866,22 +866,22 @@ class RetargetNode(Node):
         s1 = self.get_target_joints_from_ik(0, "gripper_finger1_mcp", "gripper_finger1_tip")
         if s1: solutions.append(s1)
         else:
-            self.get_logger().warning(f'There are no solutions #1...!!')
+            # self.get_logger().warning(f'There are no solutions #1...!!')
             return
         s2 = self.get_target_joints_from_ik(1, "gripper_finger2_mcp", "gripper_finger2_tip")
         if s2: solutions.append(s2)
         else:
-            self.get_logger().warning(f'There are no solutions #2...!!')
+            # self.get_logger().warning(f'There are no solutions #2...!!')
             return
         s3 = self.get_target_joints_from_ik(2, "gripper_finger3_mcp", "gripper_finger3_tip")
         if s3: solutions.append(s3)
         else:
-            self.get_logger().warning(f'There are no solutions #3...!!')
+            # self.get_logger().warning(f'There are no solutions #3...!!')
             return
         s4 = self.get_target_joints_from_ik(3, "gripper_finger4_mcp", "gripper_finger4_tip")
         if s4: solutions.append(s4)
         else:
-            self.get_logger().warning(f'There are no solutions #4...!!')
+            # self.get_logger().warning(f'There are no solutions #4...!!')
             return
 
         if solutions:
@@ -890,6 +890,7 @@ class RetargetNode(Node):
             # self.get_logger().info(f'time: t0-t1: {t1-t0} / t1-t2: {t2-t1} / t2-t3: {t3-t2}')
         else:
             self.get_logger().warning(f'There are no solutions...!!')
+            
             
         t3 = time.perf_counter()
         
